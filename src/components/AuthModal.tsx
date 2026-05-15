@@ -3,6 +3,7 @@ import { X, Mail, Lock, User as UserIcon, Loader2, Github } from 'lucide-react';
 import { FwdMark } from './FwdLogo';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/components/ui/use-toast';
+import { startTreyTvLogin, isTreyTvLoginConfigured } from '@/lib/treyTvAuth';
 
 interface Props {
   open: boolean;
@@ -73,6 +74,20 @@ const AuthModal: React.FC<Props> = ({ open, onClose, initialMode = 'signin' }) =
     if (res.error) setErr(friendlyError(res.error, mode));
   };
 
+  const treyTvLogin = () => {
+    if (!isTreyTvLoginConfigured()) {
+      setErr('Trey TV login is not configured for this environment yet.');
+      return;
+    }
+    setBusy(true);
+    try {
+      startTreyTvLogin({ returnTo: '/profile' });
+    } catch {
+      setBusy(false);
+      setErr('Could not start Trey TV login. Please try again.');
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md" onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()}
@@ -92,7 +107,7 @@ const AuthModal: React.FC<Props> = ({ open, onClose, initialMode = 'signin' }) =
         </div>
 
         {/* OAuth */}
-        <div className="grid grid-cols-2 gap-2 mb-4">
+        <div className="grid grid-cols-2 gap-2 mb-3">
           <button onClick={() => oauth('google')} disabled={busy}
             className="glass-strong border border-white/15 rounded-xl py-3 flex items-center justify-center gap-2 text-sm font-semibold text-white hover:border-fuchsia-500/50">
             <GoogleIcon /> Google
@@ -102,6 +117,18 @@ const AuthModal: React.FC<Props> = ({ open, onClose, initialMode = 'signin' }) =
             <Github size={16} /> GitHub
           </button>
         </div>
+
+        {/* Continue with Trey TV */}
+        <button
+          onClick={treyTvLogin}
+          disabled={busy}
+          className="w-full mb-4 glass-strong border border-cyan-400/40 rounded-xl py-3 px-4 flex items-center justify-center gap-2.5 text-sm font-semibold text-white hover:border-cyan-300/70 hover:shadow-[0_0_28px_rgba(34,211,238,0.35)] transition-all disabled:opacity-60"
+        >
+          <span className="inline-flex items-center justify-center w-5 h-5 rounded-md bg-gradient-to-br from-cyan-400 via-fuchsia-500 to-pink-500 text-[10px] font-black text-black">
+            TV
+          </span>
+          <span>Continue with Trey TV</span>
+        </button>
 
         <div className="flex items-center gap-3 my-4">
           <div className="flex-1 h-px bg-white/10" />
