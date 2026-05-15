@@ -213,7 +213,7 @@ const EmbedPicker: React.FC = () => {
           {results.length === 0 ? (
             <div className="text-center py-10 text-zinc-500 text-sm">No reaction found yet.</div>
           ) : (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {results.map(g => (
                 <button key={g.id} onClick={() => handleSelect(g)}
                   className="relative rounded-xl overflow-hidden border border-fuchsia-500/20 hover:border-fuchsia-500/70 hover:scale-[1.02] transition group">

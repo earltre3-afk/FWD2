@@ -76,10 +76,10 @@ const AppLayout: React.FC = () => {
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full glass border border-fuchsia-500/30 text-xs text-fuchsia-300 mb-6">
           <Sparkles size={12} /> The future of GIFs
         </div>
-        <h1 className="text-5xl md:text-7xl font-black tracking-tight text-white leading-[0.95] mb-5">
+        <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black tracking-tight text-white leading-[0.95] mb-5">
           Express. <span className="gradient-text">Connect.</span><br />Forward.
         </h1>
-        <p className="text-zinc-400 text-lg md:text-xl max-w-2xl mx-auto mb-8">
+        <p className="text-zinc-400 text-base sm:text-lg md:text-xl max-w-2xl mx-auto mb-8 px-4">
           Forward the feeling. Forward the reaction. Turn moments into movement with the most expressive GIF studio on the planet.
         </p>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -106,10 +106,10 @@ const AppLayout: React.FC = () => {
 
       <section id="features" className="relative z-10 max-w-7xl mx-auto px-5 md:px-8 py-16">
         <div className="text-center mb-10">
-          <h2 className="text-3xl md:text-5xl font-black text-white mb-3">Built to forward the vibe.</h2>
-          <p className="text-zinc-400 max-w-xl mx-auto">Create it. Clip it. Forward it. Everything you need to react, in one neon-charged toolkit.</p>
+          <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black text-white mb-3">Built to forward the vibe.</h2>
+          <p className="text-zinc-400 text-sm sm:text-base max-w-xl mx-auto px-4">Create it. Clip it. Forward it. Everything you need to react, in one neon-charged toolkit.</p>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 lg:gap-5">
           <FeatureCard icon={Search} title="Search" desc="Find the perfect reaction across millions of moods, memes and music moments." color="bg-gradient-to-br from-fuchsia-600 to-purple-700" />
           <FeatureCard icon={Zap} title="Create" desc="Turn any video or photo into a looped GIF with the futuristic mini editor." color="bg-gradient-to-br from-pink-500 to-fuchsia-600" />
           <FeatureCard icon={Heart} title="Save" desc="Build your reaction vault. Organize favorites into themed collections." color="bg-gradient-to-br from-rose-500 to-pink-600" />
@@ -124,8 +124,8 @@ const AppLayout: React.FC = () => {
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-fuchsia-500/15 text-fuchsia-300 text-xs mb-4">
               <Layers size={12} /> For builders
             </div>
-            <h3 className="text-3xl md:text-4xl font-black text-white mb-3">Drop FWD into any app.</h3>
-            <p className="text-zinc-400 mb-6">Add a plus-button GIF drawer to your messaging product. The embedded picker is lightweight, themeable, and just works.</p>
+            <h3 className="text-2xl sm:text-3xl md:text-4xl font-black text-white mb-3">Drop FWD into any app.</h3>
+            <p className="text-zinc-400 text-sm sm:text-base mb-6">Add a plus-button GIF drawer to your messaging product. The embedded picker is lightweight, themeable, and just works.</p>
             <div className="flex flex-wrap gap-3">
               <button onClick={() => nav('/embed/picker')} className="px-5 py-3 rounded-xl bg-gradient-to-r from-fuchsia-600 to-pink-500 text-white font-bold flex items-center gap-2 neon-glow-pink">
                 Open Picker <ArrowRight size={16} />

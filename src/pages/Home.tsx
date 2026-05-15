@@ -24,7 +24,7 @@ const Home: React.FC = () => {
 
   return (
     <div className="min-h-screen pb-32">
-      <div className="max-w-md md:max-w-2xl mx-auto px-4 pt-6">
+      <div className="max-w-md md:max-w-2xl lg:max-w-4xl xl:max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
           <div className="w-9" />
@@ -70,16 +70,21 @@ const Home: React.FC = () => {
           <button onClick={() => nav('/search')} className="text-sm text-fuchsia-400 font-semibold">See All ›</button>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 lg:gap-4">
           <div className="row-span-2">
             <GifCard gif={filtered[0]} tall />
           </div>
           {filtered.slice(1, 5).map(g => <GifCard key={g.id} gif={g} />)}
+          {/* Show more on larger screens */}
+          <div className="hidden sm:block lg:hidden">
+            <GifCard gif={filtered[5] || filtered[0]} />
+          </div>
+          {filtered.slice(5, 9).map(g => <GifCard key={g.id} gif={g} className="hidden lg:block" />)}
         </div>
 
         {/* Moods */}
-        <h2 className="text-lg font-black text-white tracking-wider mt-7 mb-3">HOW ARE YOU FEELING?</h2>
-        <div className="grid grid-cols-4 gap-3">
+        <h2 className="text-lg md:text-xl font-black text-white tracking-wider mt-7 mb-3">HOW ARE YOU FEELING?</h2>
+        <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-8 gap-3">
           {MOODS.map(m => (
             <button key={m.name} onClick={() => nav('/search?q=' + encodeURIComponent(m.name.toLowerCase()))}
               className="glass rounded-2xl p-3 flex flex-col items-center gap-1 border border-white/10 hover:border-fuchsia-500/50 hover:scale-105 transition">
@@ -90,7 +95,7 @@ const Home: React.FC = () => {
         </div>
 
         {/* Quick actions */}
-        <div className="grid grid-cols-3 gap-3 mt-6">
+        <div className="grid grid-cols-3 gap-3 sm:gap-4 lg:gap-5 mt-6">
           <button onClick={() => nav('/create')} className="glass-strong rounded-2xl p-4 flex flex-col items-center gap-2 border border-fuchsia-500/30 hover:border-fuchsia-500 transition">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-fuchsia-600/20 to-purple-600/20 border border-fuchsia-500/40 flex items-center justify-center">
               <Upload size={22} className="text-fuchsia-400" />

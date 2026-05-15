@@ -177,7 +177,7 @@ const Discover: React.FC = () => {
 
   return (
     <div className="min-h-screen pb-32">
-      <div className="max-w-md md:max-w-2xl mx-auto px-4 pt-6">
+      <div className="max-w-md md:max-w-2xl lg:max-w-4xl xl:max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         <div className="flex items-center justify-between mb-2">
           <button onClick={() => nav(-1)} className="w-10 h-10 rounded-full glass flex items-center justify-center">
             <ArrowLeft size={18} className="text-white" />
@@ -187,8 +187,8 @@ const Discover: React.FC = () => {
         </div>
 
         <div className="text-center mb-6">
-          <h1 className="text-3xl font-black text-white tracking-widest">DISCOVER</h1>
-          <p className="text-zinc-400 text-sm">Find the people making the loop loop.</p>
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-widest">DISCOVER</h1>
+          <p className="text-zinc-400 text-sm sm:text-base">Find the people making the loop loop.</p>
         </div>
 
         {loading ? (
@@ -205,7 +205,7 @@ const Discover: React.FC = () => {
                   No trending makers yet. Drop a reaction to claim the spot.
                 </div>
               ) : (
-                <div className="grid grid-cols-1 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 lg:gap-3">
                   {trendingMakers.map(m => (
                     <CreatorCard
                       key={m.id}
@@ -228,8 +228,8 @@ const Discover: React.FC = () => {
                   No new public creators right now. Make your profile public to show up here.
                 </div>
               ) : (
-                <div className="grid grid-cols-1 gap-2">
-                  {featuredFiltered.slice(0, 8).map(p => <CreatorCard key={p.id} p={p} onOpen={() => openProfile(p)} />)}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 lg:gap-3">
+                  {featuredFiltered.slice(0, 9).map(p => <CreatorCard key={p.id} p={p} onOpen={() => openProfile(p)} />)}
                 </div>
               )}
             </Section>
@@ -240,7 +240,7 @@ const Discover: React.FC = () => {
                   No category data yet. Categories will appear as people upload.
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 lg:gap-3">
                   {trendingCategories.map(c => (
                     <button
                       key={c.name}
@@ -265,7 +265,7 @@ const Discover: React.FC = () => {
                   Nothing fresh yet. Be the first to forward something.
                 </div>
               ) : (
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 lg:gap-3">
                   {fresh.map(g => (
                     <button
                       key={g.id}
@@ -303,7 +303,7 @@ const Discover: React.FC = () => {
                   Your circle is empty. Follow a creator above to fill it up.
                 </div>
               ) : (
-                <div className="grid grid-cols-1 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 lg:gap-3">
                   {circle.map(p => <CreatorCard key={p.id} p={p} onOpen={() => openProfile(p)} />)}
                 </div>
               )}

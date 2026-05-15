@@ -100,7 +100,7 @@ const CreateGif: React.FC = () => {
 
   return (
     <div className="min-h-screen pb-10">
-      <div className="max-w-md md:max-w-2xl mx-auto px-4 pt-6">
+      <div className="max-w-md md:max-w-2xl lg:max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         <div className="flex items-center justify-between mb-3">
           <button onClick={() => nav(-1)} className="w-10 h-10 rounded-full glass flex items-center justify-center">
             <ArrowLeft size={18} className="text-white" />
@@ -113,8 +113,8 @@ const CreateGif: React.FC = () => {
         </div>
 
         <div className="text-center mb-4">
-          <h1 className="text-3xl font-black text-white tracking-widest">CREATE GIF</h1>
-          <p className="text-zinc-400 text-sm">Turn your moment into a loop.</p>
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-widest">CREATE GIF</h1>
+          <p className="text-zinc-400 text-sm sm:text-base">Turn your moment into a loop.</p>
         </div>
 
         {/* Upload zone */}
@@ -127,7 +127,7 @@ const CreateGif: React.FC = () => {
 
 
         {/* Preview */}
-        <div className="relative rounded-2xl overflow-hidden border border-fuchsia-500/40 neon-glow-purple aspect-square mb-3">
+        <div className="relative rounded-2xl overflow-hidden border border-fuchsia-500/40 neon-glow-purple aspect-square sm:aspect-video lg:aspect-square max-w-lg mx-auto mb-3">
           {mediaType?.startsWith('video/') || image.includes('.webm') || image.includes('.mp4') ? (
             <video src={image} muted autoPlay loop playsInline className={`w-full h-full object-cover ${filterStyle}`} style={{ animationDuration: `${3 / speed}s` }} />
           ) : (
@@ -178,7 +178,7 @@ const CreateGif: React.FC = () => {
         </div>
 
         {/* Tools */}
-        <div className="grid grid-cols-6 gap-2 mb-4">
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3 mb-4">
           {TOOLS.map(t => {
             const Icon = t.icon;
             const active = t.id === tool;
