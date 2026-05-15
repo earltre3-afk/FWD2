@@ -25,6 +25,7 @@ import PickerKeys from "./pages/PickerKeys";
 import IntegrationStatus from "./pages/IntegrationStatus";
 import AuthRoute from "./pages/AuthRoute";
 import TreyTvCallback from "./pages/TreyTvCallback";
+import TreyTvStart from "./pages/TreyTvStart";
 import PickerKeyManager from "./pages/PickerKeyManager";
 
 const queryClient = new QueryClient();
@@ -43,6 +44,7 @@ const App = () => (
                 <Route path="/home" element={<Home />} />
                 <Route path="/login" element={<AuthRoute mode="signin" />} />
                 <Route path="/signup" element={<AuthRoute mode="signup" />} />
+                <Route path="/auth/trey-tv/start" element={<TreyTvStart />} />
                 <Route path="/auth/trey-tv/callback" element={<TreyTvCallback />} />
                 <Route path="/create-profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
                 <Route path="/search" element={<SearchPage />} />

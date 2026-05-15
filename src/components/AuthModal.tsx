@@ -75,14 +75,14 @@ const AuthModal: React.FC<Props> = ({ open, onClose, initialMode = 'signin' }) =
     if (res.error) setErr(friendlyError(res.error, mode));
   };
 
-  const treyTvLogin = () => {
+  const treyTvLogin = async () => {
     if (!isTreyTvLoginConfigured()) {
       setErr('Trey TV login is not configured for this environment yet.');
       return;
     }
     setBusy(true);
     try {
-      startTreyTvLogin({ returnTo: '/profile' });
+      await startTreyTvLogin({ returnTo: '/profile' });
     } catch {
       setBusy(false);
       setErr('Could not start Trey TV login. Please try again.');

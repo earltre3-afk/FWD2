@@ -7,9 +7,11 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import {
   consumeReturnTo,
   consumeStoredState,
+  consumeCodeVerifier,
   startTreyTvLogin,
   treyTvRedirectUri,
 } from '@/lib/treyTvAuth';
+import { toast } from '@/components/ui/use-toast';
 
 type Status = 'loading' | 'success' | 'error';
 
@@ -19,10 +21,16 @@ interface ExchangeResult {
   profile?: {
     fwd_user_id?: string | null;
     is_new_profile?: boolean;
+    trey_tv_uid?: string | null;
+    trey_tv_display_name?: string | null;
+    trey_tv_avatar_url?: string | null;
+    trey_tv_profile_url?: string | null;
     display_name?: string | null;
     email?: string | null;
     avatar_url?: string | null;
     connected_trey_tv_uid?: string | null;
+    identity_provider?: string;
+    identity_verified_at?: string | null;
   };
 }
 
@@ -39,6 +47,7 @@ const TreyTvCallback: React.FC = () => {
     const errorParam = params.get('error');
     const errorDescription = params.get('error_description');
     const expectedState = consumeStoredState();
+    const codeVerifier   = consumeCodeVerifier();
     const storedReturnTo = consumeReturnTo();
     if (storedReturnTo) setReturnPath(storedReturnTo);
 
@@ -70,13 +79,20 @@ const TreyTvCallback: React.FC = () => {
           return;
         }
 
+        if (!codeVerifier) {
+          setStatus('error');
+          setMessage('PKCE verifier is missing. Please try logging in again.');
+          return;
+        }
+
         const { data, error } = await supabase.functions.invoke<ExchangeResult>(
           'trey-tv-login-exchange',
           {
             body: {
               code,
-              redirect_uri: treyTvRedirectUri,
-              state: returnedState,
+              redirect_uri:  treyTvRedirectUri,
+              state:         returnedState,
+              code_verifier: codeVerifier,
             },
           }
         );
@@ -96,21 +112,29 @@ const TreyTvCallback: React.FC = () => {
         setStatus('success');
         setMessage('Trey TV connected. Taking you in…');
 
+        toast({
+          title: 'Signed in with Trey TV',
+          description: data.profile?.trey_tv_display_name
+            ? `Welcome, ${data.profile.trey_tv_display_name}!`
+            : 'Your Trey TV identity is connected to FWD.',
+        });
+
         const isNew = data.profile?.is_new_profile;
         const next = isNew ? '/create-profile' : storedReturnTo || '/profile';
 
-        // Pass Trey TV profile prefill data to create-profile via state
+        // Pass Trey TV profile prefill data to /create-profile via router state
         setTimeout(() => {
           if (isNew) {
             navigate(next, {
               replace: true,
               state: {
                 prefill: {
-                  display_name: data.profile?.display_name || '',
-                  email: data.profile?.email || '',
-                  avatar_url: data.profile?.avatar_url || '',
-                  connected_trey_tv_uid: data.profile?.connected_trey_tv_uid || '',
-                  login_provider: 'trey_tv',
+                  display_name:          data.profile?.trey_tv_display_name || data.profile?.display_name || '',
+                  email:                 data.profile?.email || '',
+                  avatar_url:            data.profile?.trey_tv_avatar_url || data.profile?.avatar_url || '',
+                  trey_tv_uid:           data.profile?.trey_tv_uid || data.profile?.connected_trey_tv_uid || '',
+                  identity_provider:     'trey_tv',
+                  identity_verified_at:  data.profile?.identity_verified_at || '',
                 },
               },
             });
