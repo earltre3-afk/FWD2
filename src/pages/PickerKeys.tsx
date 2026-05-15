@@ -27,9 +27,45 @@ const generatePublicKey = () => {
 };
 
 const buildEmbedUrl = (publicKey: string, appName: string, mode: string) => {
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const appUrl = import.meta.env.VITE_FWD_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '');
   const source = encodeURIComponent((appName || 'external_app').toLowerCase().replace(/\s+/g, '_'));
-  return `${origin}/embed/picker?source=${source}&context=message&theme=dark&mode=${mode}&key=${publicKey}`;
+  return `${appUrl}/embed/picker?source=${source}&context=message&theme=dark&mode=${mode}&key=${publicKey}`;
+};
+
+const buildIntegrationSnippet = (publicKey: string, appName: string, mode: string) => {
+  const embedUrl = buildEmbedUrl(publicKey, appName, mode);
+  return `<!-- FWD GIF Picker Integration -->
+<script>
+window.addEventListener('message', (event) => {
+  if (!event.origin.includes('fwd.treytv.com')) return;
+  const data = event.data;
+  if (data?.type === 'FWD_GIF_SELECTED') {
+    console.log('GIF selected:', data.gif);
+    // data.gif.mediaUrl - Full quality GIF URL
+    // data.gif.title - GIF title
+    // data.gif.thumbnailUrl - Thumbnail URL
+  }
+  if (data?.type === 'FWD_PICKER_CLOSED') {
+    // Close your modal
+  }
+});
+
+function openFwdPicker() {
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center';
+  modal.onclick = (e) => e.target === modal && modal.remove();
+  
+  const iframe = document.createElement('iframe');
+  iframe.src = '${embedUrl}';
+  iframe.style.cssText = 'width:100%;max-width:480px;height:80vh;max-height:600px;border:none;border-radius:16px';
+  iframe.allow = 'clipboard-write';
+  
+  modal.appendChild(iframe);
+  document.body.appendChild(modal);
+}
+</script>
+
+<button onclick="openFwdPicker()">Add GIF</button>`;
 };
 
 const PickerKeys: React.FC = () => {
@@ -227,7 +263,15 @@ const PickerKeys: React.FC = () => {
                     <p className="text-[11px] text-zinc-500">No origins set — this key will be rejected until at least one allowed origin is added.</p>
                   )}
 
-                  <div className="flex items-center gap-2 mt-4">
+                  {/* Copy Snippet Button */}
+                  <button 
+                    onClick={() => copy(buildIntegrationSnippet(k.public_key, k.app_name, k.picker_mode || 'compact'), k.id + '-snippet')}
+                    className="w-full py-2 mt-3 rounded-xl glass border border-cyan-500/30 text-cyan-200 text-xs font-bold flex items-center justify-center gap-1.5"
+                  >
+                    {copiedId === k.id + '-snippet' ? <><Check size={12} className="text-emerald-300" /> Copied Snippet!</> : <><Copy size={12} /> Copy Integration Snippet</>}
+                  </button>
+
+                  <div className="flex items-center gap-2 mt-2">
                     <button onClick={() => handleRegenerate(k)}
                       className="flex-1 py-2 rounded-xl glass border border-fuchsia-500/30 text-fuchsia-200 text-xs font-bold flex items-center justify-center gap-1.5">
                       <RefreshCw size={12} /> Regenerate

@@ -4,6 +4,7 @@ type PickerKeyRow = {
   id: string;
   public_key: string;
   allowed_origins: string[] | null;
+  is_active: boolean;
 };
 
 const json = (body: Record<string, unknown>, status: number, origin: string | null) => new Response(JSON.stringify(body), {
@@ -60,18 +61,26 @@ Deno.serve(async (req) => {
 
   const { data, error } = await supabase
     .from('picker_api_keys')
-    .select('id, public_key, allowed_origins')
+    .select('id, public_key, allowed_origins, is_active')
     .eq('public_key', key)
     .maybeSingle<PickerKeyRow>();
 
+  // Key not found or database error
   if (error || !data) {
-    return json({ allowed: false }, 403, origin);
+    return json({ allowed: false, error: 'invalid_key' }, 403, origin);
   }
 
+  // Key is inactive/disabled
+  if (data.is_active === false) {
+    return json({ allowed: false, error: 'key_disabled' }, 403, origin);
+  }
+
+  // Check origin against allowed origins
   const allowedOrigins = (data.allowed_origins || []).map(normalizeOrigin).filter(Boolean);
   if (!allowedOrigins.includes(origin)) {
-    return json({ allowed: false }, 403, origin);
+    return json({ allowed: false, error: 'origin_not_allowed' }, 403, origin);
   }
 
+  // All checks passed
   return json({ allowed: true }, 200, origin);
 });
