@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { useUserMemory } from '@/hooks/useUserMemory';
 
 export interface Gif {
   id: string;
@@ -32,6 +33,7 @@ interface AppContextType {
   userGifs: Gif[];
   createUserGif: (gif: Omit<Gif, 'id' | 'user_id'> & { isPublic?: boolean }) => Promise<Gif | null>;
   refresh: () => Promise<void>;
+  recordGifUse: (gifId: string, platform?: string, context?: string) => Promise<void>;
 }
 
 const defaultGuestCollections: Collection[] = [
@@ -48,6 +50,7 @@ export const useAppContext = () => useContext(AppContext);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
+  const { recordUse, saveGif, removeGif, markCreated } = useUserMemory();
   const [favorites, setFavorites] = useState<string[]>([]);
   const [collections, setCollections] = useState<Collection[]>(defaultGuestCollections);
   const [userGifs, setUserGifs] = useState<Gif[]>([]);
@@ -100,10 +103,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!user) return;
     if (has) {
       await supabase.from('favorites').delete().eq('user_id', user.id).eq('gif_id', id);
+      removeGif(id, 'fwd');
     } else {
       await supabase.from('favorites').insert({ user_id: user.id, gif_id: id });
+      saveGif(id, 'fwd');
     }
-  }, [favorites, user]);
+  }, [favorites, user, saveGif, removeGif]);
 
   const addRecentSearch = useCallback((q: string) => {
     if (!q.trim()) return;
@@ -150,8 +155,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       category: data.category || 'Reactions', mood: data.mood, user_id: data.user_id,
     };
     setUserGifs(prev => [newGif, ...prev]);
+    markCreated(data.id, 'fwd');
     return newGif;
-  }, [user]);
+  }, [user, markCreated]);
+
+  const recordGifUse = useCallback(
+    (gifId: string, platform = 'fwd', context?: string) =>
+      recordUse(gifId, platform, context),
+    [recordUse]
+  );
 
   return (
     <AppContext.Provider value={{
@@ -159,6 +171,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       recentSearches, addRecentSearch, clearRecentSearches,
       collections, createCollection, addToCollection,
       userGifs, createUserGif, refresh: loadAll,
+      recordGifUse,
     }}>
       {children}
     </AppContext.Provider>
