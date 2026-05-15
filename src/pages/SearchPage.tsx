@@ -39,7 +39,7 @@ const SearchPage: React.FC = () => {
 
   return (
     <div className="min-h-screen pb-32">
-      <div className="max-w-md md:max-w-2xl mx-auto px-4 pt-6">
+      <div className="max-w-md md:max-w-2xl lg:max-w-4xl xl:max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         <div className="flex items-center justify-between mb-5">
           <div className="w-9" />
           <FwdLogo size="md" />
@@ -108,7 +108,7 @@ const SearchPage: React.FC = () => {
               <h3 className="text-base font-black text-white tracking-wider">SEARCH RESULTS</h3>
               <span className="text-sm text-fuchsia-400 font-semibold">{results.length} Results</span>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 lg:gap-4">
               {results.map(g => <GifCard key={g.id} gif={g} showShare />)}
             </div>
           </>

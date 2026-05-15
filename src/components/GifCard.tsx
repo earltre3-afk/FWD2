@@ -9,9 +9,10 @@ interface Props {
   showHeart?: boolean;
   showShare?: boolean;
   tall?: boolean;
+  className?: string;
 }
 
-const GifCard: React.FC<Props> = ({ gif, onClick, showHeart = true, showShare = false, tall = false }) => {
+const GifCard: React.FC<Props> = ({ gif, onClick, showHeart = true, showShare = false, tall = false, className = '' }) => {
   const nav = useNavigate();
   const { toggleFavorite, isFavorite } = useAppContext();
   const fav = isFavorite(gif.id);
@@ -24,7 +25,7 @@ const GifCard: React.FC<Props> = ({ gif, onClick, showHeart = true, showShare = 
   return (
     <div
       onClick={handleClick}
-      className={`relative group cursor-pointer rounded-2xl overflow-hidden glass-strong border border-fuchsia-500/20 hover:border-fuchsia-500/60 transition-all hover:scale-[1.02] hover:shadow-[0_0_30px_rgba(176,38,255,0.4)] ${tall ? 'aspect-[3/4]' : 'aspect-square'}`}
+      className={`relative group cursor-pointer rounded-xl sm:rounded-2xl overflow-hidden glass-strong border border-fuchsia-500/20 hover:border-fuchsia-500/60 transition-all hover:scale-[1.02] hover:shadow-[0_0_30px_rgba(176,38,255,0.4)] ${tall ? 'aspect-[3/4]' : 'aspect-square'} ${className}`}
     >
       <img src={gif.image} alt={gif.title} className="w-full h-full object-cover" loading="lazy" />
       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/0 to-black/30" />

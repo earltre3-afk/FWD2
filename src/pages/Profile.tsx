@@ -67,7 +67,7 @@ const Profile: React.FC = () => {
 
   return (
     <div className="min-h-screen pb-32">
-      <div className="max-w-md md:max-w-2xl mx-auto px-4 pt-6">
+      <div className="max-w-md md:max-w-2xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         <div className="flex items-center justify-between mb-2">
           <div className="w-10" />
           <FwdLogo size="md" />
@@ -80,7 +80,7 @@ const Profile: React.FC = () => {
         <div className="glass-strong rounded-3xl p-4 border border-fuchsia-500/30 mt-4">
           <div className="flex items-start gap-4">
             <div className="relative">
-              <div className="w-24 h-24 rounded-full p-[3px] bg-gradient-to-br from-fuchsia-500 via-pink-500 to-cyan-400 neon-glow-purple">
+              <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full p-[3px] bg-gradient-to-br from-fuchsia-500 via-pink-500 to-cyan-400 neon-glow-purple">
                 {profile?.avatar_url ? (
                   <img src={profile.avatar_url} className="w-full h-full rounded-full object-cover" />
                 ) : (
@@ -103,7 +103,7 @@ const Profile: React.FC = () => {
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5">
-                  <h2 className="text-2xl font-black text-white truncate">{displayName}</h2>
+                  <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-white truncate">{displayName}</h2>
                   <BadgeCheck size={18} className="text-fuchsia-400 fill-fuchsia-400/20 flex-shrink-0" />
                 </div>
               )}
@@ -174,15 +174,15 @@ const Profile: React.FC = () => {
               <button className="text-sm text-fuchsia-400 font-semibold flex items-center gap-1">Newest <ChevronDown size={14} /></button>
             </div>
             {userGifs.length === 0 ? (
-              <div className="glass-strong rounded-3xl p-8 text-center border border-fuchsia-500/20">
-                <p className="text-zinc-400 mb-4">You haven't created any GIFs yet.</p>
+              <div className="glass-strong rounded-3xl p-6 sm:p-8 text-center border border-fuchsia-500/20">
+                <p className="text-zinc-400 mb-4 text-sm sm:text-base">You haven&apos;t created any GIFs yet.</p>
                 <button onClick={() => nav('/create')}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-fuchsia-600 to-pink-500 text-white font-bold neon-glow-pink">
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-fuchsia-600 to-pink-500 text-white font-bold neon-glow-pink text-sm sm:text-base">
                   Create your first GIF
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
                 {userGifs.map(g => <GifCard key={g.id} gif={g} showHeart={false} />)}
               </div>
             )}
@@ -193,11 +193,11 @@ const Profile: React.FC = () => {
           <>
             <h3 className="text-sm font-black text-white tracking-wider mt-6 mb-3">SAVED GIFS</h3>
             {savedGifs.length === 0 ? (
-              <div className="glass-strong rounded-3xl p-8 text-center border border-fuchsia-500/20">
-                <p className="text-zinc-400">Tap the heart on any GIF to save it to your vault.</p>
+              <div className="glass-strong rounded-3xl p-6 sm:p-8 text-center border border-fuchsia-500/20">
+                <p className="text-zinc-400 text-sm sm:text-base">Tap the heart on any GIF to save it to your vault.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
                 {savedGifs.map(g => <GifCard key={g.id} gif={g} />)}
               </div>
             )}

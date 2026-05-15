@@ -69,15 +69,35 @@ const BlockedEmbed: React.FC<{ checking?: boolean }> = ({ checking }) => (
   </div>
 );
 
+// Supported context values for embed picker
+export type PickerContext = 
+  | 'message' 
+  | 'comment' 
+  | 'group_chat' 
+  | 'watch_party' 
+  | 'creator_channel' 
+  | 'feed_post' 
+  | 'profile_reaction';
+
+// Supported mode values
+export type PickerMode = 'compact' | 'full';
+
+// Supported theme values
+export type PickerTheme = 'dark' | 'light';
+
 const EmbedPicker: React.FC = () => {
   const [params] = useSearchParams();
-  const compactParam = params.get('mode') === 'compact';
-  const source = params.get('source') || '';
-  const context = params.get('context') || 'message';
-  const userUid = params.get('user_uid') || '';
+  
+  // Query params per spec
   const embedKey = params.get('key') || '';
+  const source = params.get('source') || '';
+  const context = (params.get('context') || 'message') as PickerContext;
+  const userUid = params.get('user_uid') || '';
+  const theme = (params.get('theme') || 'dark') as PickerTheme;
+  const modeParam = (params.get('mode') || 'compact') as PickerMode;
+  
   const [accessState, setAccessState] = useState<'checking' | 'allowed' | 'blocked'>('checking');
-  const [compact, setCompact] = useState(compactParam);
+  const [compact, setCompact] = useState(modeParam === 'compact');
   const [query, setQuery] = useState('');
   const [cat, setCat] = useState('Trending');
 
@@ -213,7 +233,7 @@ const EmbedPicker: React.FC = () => {
           {results.length === 0 ? (
             <div className="text-center py-10 text-zinc-500 text-sm">No reaction found yet.</div>
           ) : (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {results.map(g => (
                 <button key={g.id} onClick={() => handleSelect(g)}
                   className="relative rounded-xl overflow-hidden border border-fuchsia-500/20 hover:border-fuchsia-500/70 hover:scale-[1.02] transition group">

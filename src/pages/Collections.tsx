@@ -25,7 +25,7 @@ const Collections: React.FC = () => {
 
   return (
     <div className="min-h-screen pb-32">
-      <div className="max-w-md md:max-w-2xl mx-auto px-4 pt-6">
+      <div className="max-w-md md:max-w-2xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         <div className="flex items-center justify-between mb-3">
           <button onClick={() => nav(-1)} className="w-10 h-10 rounded-full glass flex items-center justify-center">
             <ArrowLeft size={18} className="text-white" />
@@ -36,8 +36,8 @@ const Collections: React.FC = () => {
           </button>
         </div>
 
-        <h1 className="text-3xl font-black text-white mt-2">Collections</h1>
-        <p className="text-zinc-400 text-sm mb-5">Organize your reactions, your way.</p>
+        <h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-white mt-2">Collections</h1>
+        <p className="text-zinc-400 text-sm sm:text-base mb-5">Organize your reactions, your way.</p>
 
         {creating && (
           <div className="glass-strong rounded-2xl p-3 border border-fuchsia-500/40 mb-4 flex gap-2">
@@ -48,7 +48,7 @@ const Collections: React.FC = () => {
           </div>
         )}
 
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-4">
           {collections.map(c => {
             const previewIds = c.gifIds.length ? c.gifIds : GIFS.slice(0, 4).map(g => g.id);
             return (

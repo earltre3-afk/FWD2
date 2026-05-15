@@ -10,21 +10,21 @@ const BottomNav: React.FC = () => {
 
   const Item = ({ icon: Icon, label, path }: any) => (
     <button onClick={() => nav(path)} className="flex flex-col items-center gap-1 flex-1 py-1 group">
-      <Icon size={22} className={`transition-colors ${isActive(path) ? 'text-fuchsia-400' : 'text-zinc-400 group-hover:text-zinc-200'}`}
+      <Icon size={22} className={`sm:w-6 sm:h-6 transition-colors ${isActive(path) ? 'text-fuchsia-400' : 'text-zinc-400 group-hover:text-zinc-200'}`}
         style={isActive(path) ? { filter: 'drop-shadow(0 0 8px rgba(217,70,239,0.8))' } : {}} />
-      <span className={`text-[11px] ${isActive(path) ? 'text-fuchsia-400 font-semibold' : 'text-zinc-400'}`}>{label}</span>
+      <span className={`text-[11px] sm:text-xs ${isActive(path) ? 'text-fuchsia-400 font-semibold' : 'text-zinc-400'}`}>{label}</span>
     </button>
   );
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 pb-[env(safe-area-inset-bottom)]">
-      <div className="mx-auto max-w-md px-3 pb-3">
-        <div className="glass-strong rounded-3xl px-2 py-2 flex items-center justify-around relative">
+      <div className="mx-auto max-w-md md:max-w-lg lg:max-w-xl px-3 pb-3">
+        <div className="glass-strong rounded-3xl px-2 sm:px-4 py-2 sm:py-3 flex items-center justify-around relative">
           <Item icon={Home} label="Home" path="/home" />
           <Item icon={Search} label="Search" path="/search" />
-          <button onClick={() => nav('/create')} className="relative -mt-8 mx-1">
-            <div className="w-16 h-16 rounded-full glass-strong flex items-center justify-center animate-pulse-glow border border-fuchsia-500/60">
-              <FwdMark size={28} />
+          <button onClick={() => nav('/create')} className="relative -mt-8 sm:-mt-10 mx-1">
+            <div className="w-16 h-16 sm:w-18 sm:h-18 md:w-20 md:h-20 rounded-full glass-strong flex items-center justify-center animate-pulse-glow border border-fuchsia-500/60">
+              <FwdMark size={28} className="sm:w-8 sm:h-8" />
             </div>
           </button>
           <Item icon={Sparkles} label="Discover" path="/discover" />

@@ -22,6 +22,7 @@ import IntegrationDemo from "./pages/IntegrationDemo";
 import Discover from "./pages/Discover";
 import PublicProfile from "./pages/PublicProfile";
 import PickerKeys from "./pages/PickerKeys";
+import IntegrationStatus from "./pages/IntegrationStatus";
 import AuthRoute from "./pages/AuthRoute";
 
 const queryClient = new QueryClient();
@@ -53,6 +54,8 @@ const App = () => (
                 <Route path="/discover" element={<Discover />} />
                 <Route path="/u/:username" element={<PublicProfile />} />
                 <Route path="/settings/picker-keys" element={<ProtectedRoute><PickerKeys /></ProtectedRoute>} />
+                <Route path="/picker-api-keys" element={<ProtectedRoute><PickerKeys /></ProtectedRoute>} />
+                <Route path="/integration-status" element={<IntegrationStatus />} />
                 <Route path="*" element={<NotFound />} />
 
               </Routes>
