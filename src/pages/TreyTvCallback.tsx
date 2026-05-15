@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Loader2, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import FwdLogo from '@/components/FwdLogo';
+import TreyTvLogo from '@/components/TreyTvLogo';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import {
   consumeReturnTo,
@@ -143,8 +144,10 @@ const TreyTvCallback: React.FC = () => {
     <div className="min-h-screen flex items-center justify-center px-5 relative">
       <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.22),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(217,70,239,0.22),transparent_35%)]" />
       <div className="relative z-10 w-full max-w-md glass-strong rounded-3xl border border-cyan-400/40 p-8 text-center">
-        <div className="flex justify-center mb-5">
+        <div className="flex items-center justify-center gap-3 mb-5">
           <FwdLogo size="lg" />
+          <span className="text-zinc-500 text-2xl font-light">×</span>
+          <TreyTvLogo size={38} className="drop-shadow-[0_0_18px_rgba(34,211,238,0.35)]" />
         </div>
 
         {status === 'loading' && (

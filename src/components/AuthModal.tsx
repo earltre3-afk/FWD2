@@ -4,6 +4,7 @@ import { FwdMark } from './FwdLogo';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/components/ui/use-toast';
 import { startTreyTvLogin, isTreyTvLoginConfigured } from '@/lib/treyTvAuth';
+import TreyTvLogo from './TreyTvLogo';
 
 interface Props {
   open: boolean;
@@ -124,9 +125,7 @@ const AuthModal: React.FC<Props> = ({ open, onClose, initialMode = 'signin' }) =
           disabled={busy}
           className="w-full mb-4 glass-strong border border-cyan-400/40 rounded-xl py-3 px-4 flex items-center justify-center gap-2.5 text-sm font-semibold text-white hover:border-cyan-300/70 hover:shadow-[0_0_28px_rgba(34,211,238,0.35)] transition-all disabled:opacity-60"
         >
-          <span className="inline-flex items-center justify-center w-5 h-5 rounded-md bg-gradient-to-br from-cyan-400 via-fuchsia-500 to-pink-500 text-[10px] font-black text-black">
-            TV
-          </span>
+          <TreyTvLogo size={22} className="drop-shadow-[0_0_10px_rgba(34,211,238,0.35)]" />
           <span>Continue with Trey TV</span>
         </button>
 
