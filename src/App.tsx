@@ -25,6 +25,7 @@ import PickerKeys from "./pages/PickerKeys";
 import IntegrationStatus from "./pages/IntegrationStatus";
 import AuthRoute from "./pages/AuthRoute";
 import TreyTvCallback from "./pages/TreyTvCallback";
+import PickerKeyManager from "./pages/PickerKeyManager";
 
 const queryClient = new QueryClient();
 
@@ -58,6 +59,7 @@ const App = () => (
                 <Route path="/settings/picker-keys" element={<ProtectedRoute><PickerKeys /></ProtectedRoute>} />
                 <Route path="/picker-api-keys" element={<ProtectedRoute><PickerKeys /></ProtectedRoute>} />
                 <Route path="/integration-status" element={<IntegrationStatus />} />
+                <Route path="/settings/integrations" element={<ProtectedRoute><PickerKeyManager /></ProtectedRoute>} />
                 <Route path="*" element={<NotFound />} />
 
               </Routes>

@@ -51,7 +51,7 @@ interface TreyTvTokenResponse {
 
 interface TreyTvUser {
   id?: string;
-  uid?: string;
+  uid?: string;              // public 16-digit UID — the canonical cross-platform identity
   user_id?: string;
   email?: string;
   display_name?: string;
@@ -59,6 +59,7 @@ interface TreyTvUser {
   username?: string;
   avatar_url?: string;
   picture?: string;
+  profile_url?: string;      // public profile URL on Trey TV
 }
 
 function json(body: unknown, status = 200): Response {
@@ -195,9 +196,11 @@ serve(async (req: Request) => {
     );
   }
 
+  // providerUserId = Trey TV's internal id (used only for account linking lookup)
   const providerUserId =
     treyUser.id || treyUser.uid || treyUser.user_id || '';
-  const treyTvUid = treyUser.uid || treyUser.id || treyUser.user_id || '';
+  // treyTvUid = the PUBLIC 16-digit UID — shared identity across the ecosystem
+  const treyTvUid = treyUser.uid || '';
   const displayName =
     treyUser.display_name ||
     treyUser.name ||
@@ -206,6 +209,7 @@ serve(async (req: Request) => {
     '';
   const email = treyUser.email || '';
   const avatarUrl = treyUser.avatar_url || treyUser.picture || '';
+  const profileUrl = treyUser.profile_url || '';
 
   if (!providerUserId) {
     return json(
@@ -251,12 +255,16 @@ serve(async (req: Request) => {
     const { error: insertErr } = await admin
       .from('fwd_connected_accounts')
       .insert({
-        provider: 'trey_tv',
+        provider:         'trey_tv',
         provider_user_id: providerUserId,
-        provider_uid: treyTvUid,
-        email: email || null,
-        display_name: displayName || null,
-        avatar_url: avatarUrl || null,
+        provider_uid:     treyTvUid,        // public UID
+        public_uid:       treyTvUid,        // canonical ecosystem UID
+        email:            email || null,
+        display_name:     displayName || null,
+        avatar_url:       avatarUrl || null,
+        profile_url:      profileUrl || null,
+        last_synced_at:   new Date().toISOString(),
+        sync_status:      'synced',
       });
     if (insertErr) {
       return json(
@@ -268,30 +276,57 @@ serve(async (req: Request) => {
         500
       );
     }
+  } else {
+    // Re-sync public identity fields on every login
+    await admin
+      .from('fwd_connected_accounts')
+      .update({
+        public_uid:     treyTvUid,
+        display_name:   displayName || null,
+        avatar_url:     avatarUrl || null,
+        profile_url:    profileUrl || null,
+        last_synced_at: new Date().toISOString(),
+        sync_status:    'synced',
+      })
+      .eq('provider', 'trey_tv')
+      .eq('provider_user_id', providerUserId);
   }
 
-  // Best-effort profile mirror (only if a fwd profile already exists for
-  // this user — full Supabase Auth session minting is still TODO).
+  // Mirror all public identity fields to fwd_profiles (never private Trey TV data).
   if (fwdUserId) {
     await admin
       .from('fwd_profiles')
       .update({
-        connected_trey_tv_uid: treyTvUid || null,
-        login_provider: 'trey_tv',
-        updated_at: new Date().toISOString(),
+        connected_trey_tv_uid:  treyTvUid || null,
+        trey_tv_uid:            treyTvUid || null,
+        trey_tv_display_name:   displayName || null,
+        trey_tv_avatar_url:     avatarUrl || null,
+        trey_tv_profile_url:    profileUrl || null,
+        identity_provider:      'trey_tv',
+        identity_verified_at:   new Date().toISOString(),
+        identity_sync_status:   'synced',
+        login_provider:         'trey_tv',
+        updated_at:             new Date().toISOString(),
       })
       .eq('user_id', fwdUserId);
   }
 
+  // Return only safe public fields — never service role key, internal IDs, or raw tokens.
   return json({
     ok: true,
     profile: {
-      fwd_user_id: fwdUserId,
-      is_new_profile: isNew,
-      connected_trey_tv_uid: treyTvUid,
-      display_name: displayName,
+      fwd_user_id:           fwdUserId,
+      is_new_profile:        isNew,
+      trey_tv_uid:           treyTvUid,           // public ecosystem UID
+      connected_trey_tv_uid: treyTvUid,           // backward compat alias
+      trey_tv_display_name:  displayName,
+      trey_tv_avatar_url:    avatarUrl,
+      trey_tv_profile_url:   profileUrl,
+      identity_provider:     'trey_tv',
+      identity_verified_at:  new Date().toISOString(),
+      display_name:          displayName,
       email,
-      avatar_url: avatarUrl,
+      avatar_url:            avatarUrl,
     },
   });
 });
