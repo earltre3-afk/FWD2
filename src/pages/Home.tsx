@@ -4,7 +4,7 @@ import { Search as SearchIcon, Sparkles, Bell, Upload, Camera, Zap, TrendingUp, 
 import FwdLogo from '@/components/FwdLogo';
 import BottomNav from '@/components/BottomNav';
 import GifCard from '@/components/GifCard';
-import { GIFS, CATEGORIES, MOODS } from '@/data/gifs';
+import { GIFS, CATEGORIES, MOODS, getGifsByCategory } from '@/data/gifs';
 
 const catIcon: Record<string, any> = {
   'Trending': TrendingUp, 'New': Sparkles, 'Reactions': Smile, 'Clips': Film,
@@ -17,9 +17,7 @@ const Home: React.FC = () => {
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
-    if (cat === 'Trending') return GIFS.slice(0, 9);
-    if (cat === 'New') return GIFS.filter(g => g.category === 'New').concat(GIFS).slice(0, 9);
-    return GIFS.filter(g => g.category === cat).concat(GIFS).slice(0, 9);
+    return getGifsByCategory(cat, 20);
   }, [cat]);
 
   return (
@@ -71,15 +69,15 @@ const Home: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 lg:gap-4">
-          <div className="row-span-2">
-            <GifCard gif={filtered[0]} tall />
-          </div>
-          {filtered.slice(1, 5).map(g => <GifCard key={g.id} gif={g} />)}
+          {filtered[0] && (
+            <div className="row-span-2">
+              <GifCard gif={filtered[0]} tall />
+            </div>
+          )}
+          {filtered.slice(1, 6).map(g => <GifCard key={g.id} gif={g} />)}
           {/* Show more on larger screens */}
-          <div className="hidden sm:block lg:hidden">
-            <GifCard gif={filtered[5] || filtered[0]} />
-          </div>
-          {filtered.slice(5, 9).map(g => <GifCard key={g.id} gif={g} className="hidden lg:block" />)}
+          {filtered.slice(6, 12).map(g => <GifCard key={g.id} gif={g} className="hidden sm:block" />)}
+          {filtered.slice(12, 20).map(g => <GifCard key={g.id} gif={g} className="hidden lg:block" />)}
         </div>
 
         {/* Moods */}
