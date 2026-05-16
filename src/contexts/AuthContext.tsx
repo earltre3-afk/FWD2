@@ -79,7 +79,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const { error } = await supabase.auth.signInWithOAuth({
       provider: provider as Parameters<typeof supabase.auth.signInWithOAuth>[0]['provider'],
-      options: { redirectTo: `${window.location.origin}${isTreyTv ? '/auth/callback' : '/home'}` },
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
     });
     return { error: error?.message };
   };
