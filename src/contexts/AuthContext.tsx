@@ -17,7 +17,7 @@ interface AuthContextType {
   loading: boolean;
   signInWithEmail: (email: string, password: string) => Promise<{ error?: string }>;
   signUpWithEmail: (email: string, password: string, displayName: string) => Promise<{ error?: string }>;
-  signInWithOAuth: (provider: 'google' | 'github') => Promise<{ error?: string }>;
+  signInWithOAuth: (provider: 'google' | 'github' | 'custom:trey-tv') => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   updateProfile: (patch: Partial<FwdProfile>) => Promise<{ error?: string }>;
@@ -68,10 +68,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { error: error?.message };
   };
 
-  const signInWithOAuth = async (provider: 'google' | 'github') => {
+  const signInWithOAuth = async (provider: 'google' | 'github' | 'custom:trey-tv') => {
+    const isTreyTv = provider === 'custom:trey-tv';
+    if (isTreyTv) {
+      try {
+        sessionStorage.setItem('fwd_oauth_return_to', '/profile');
+      } catch {}
+    }
+
     const { error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: { redirectTo: `${window.location.origin}/home` },
+      provider: provider as Parameters<typeof supabase.auth.signInWithOAuth>[0]['provider'],
+      options: { redirectTo: `${window.location.origin}${isTreyTv ? '/auth/callback' : '/home'}` },
     });
     return { error: error?.message };
   };

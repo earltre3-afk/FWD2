@@ -24,6 +24,7 @@ import PublicProfile from "./pages/PublicProfile";
 import PickerKeys from "./pages/PickerKeys";
 import IntegrationStatus from "./pages/IntegrationStatus";
 import AuthRoute from "./pages/AuthRoute";
+import AuthCallback from "./pages/AuthCallback";
 import TreyTvCallback from "./pages/TreyTvCallback";
 import TreyTvStart from "./pages/TreyTvStart";
 import PickerKeyManager from "./pages/PickerKeyManager";
@@ -44,6 +45,7 @@ const App = () => (
                 <Route path="/home" element={<Home />} />
                 <Route path="/login" element={<AuthRoute mode="signin" />} />
                 <Route path="/signup" element={<AuthRoute mode="signup" />} />
+                <Route path="/auth/callback" element={<AuthCallback />} />
                 <Route path="/auth/trey-tv/start" element={<TreyTvStart />} />
                 <Route path="/auth/trey-tv/callback" element={<TreyTvCallback />} />
                 <Route path="/create-profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />

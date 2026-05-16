@@ -3,7 +3,6 @@ import { X, Mail, Lock, User as UserIcon, Loader2, Github } from 'lucide-react';
 import { FwdMark } from './FwdLogo';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/components/ui/use-toast';
-import { startTreyTvLogin, isTreyTvLoginConfigured } from '@/lib/treyTvAuth';
 import TreyTvLogo from './TreyTvLogo';
 
 interface Props {
@@ -76,17 +75,11 @@ const AuthModal: React.FC<Props> = ({ open, onClose, initialMode = 'signin' }) =
   };
 
   const treyTvLogin = async () => {
-    if (!isTreyTvLoginConfigured()) {
-      setErr('Trey TV login is not configured for this environment yet.');
-      return;
-    }
+    setErr(null);
     setBusy(true);
-    try {
-      await startTreyTvLogin({ returnTo: '/profile' });
-    } catch {
-      setBusy(false);
-      setErr('Could not start Trey TV login. Please try again.');
-    }
+    const res = await signInWithOAuth('custom:trey-tv');
+    setBusy(false);
+    if (res.error) setErr(friendlyError(res.error, mode));
   };
 
   return (
@@ -126,7 +119,7 @@ const AuthModal: React.FC<Props> = ({ open, onClose, initialMode = 'signin' }) =
           className="w-full mb-4 glass-strong border border-cyan-400/40 rounded-xl py-3 px-4 flex items-center justify-center gap-2.5 text-sm font-semibold text-white hover:border-cyan-300/70 hover:shadow-[0_0_28px_rgba(34,211,238,0.35)] transition-all disabled:opacity-60"
         >
           <TreyTvLogo size={22} className="drop-shadow-[0_0_10px_rgba(34,211,238,0.35)]" />
-          <span>Continue with Trey TV</span>
+          <span>Sign in with Trey TV</span>
         </button>
 
         <div className="flex items-center gap-3 my-4">
