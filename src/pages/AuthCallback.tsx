@@ -1,10 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, Loader2, Sparkles } from 'lucide-react';
+import type { User } from '@supabase/supabase-js';
 import FwdLogo from '@/components/FwdLogo';
 import { supabase } from '@/lib/supabase';
 
 type Status = 'loading' | 'error';
+type ProfileCheck = { exists: boolean; created: boolean };
+
+const RESERVED_USERNAMES = new Set(['admin', 'api', 'auth', 'embed', 'home', 'login', 'profile', 'signup']);
 
 function consumeReturnTo() {
   try {
@@ -13,6 +17,119 @@ function consumeReturnTo() {
     if (value?.startsWith('/') && !value.startsWith('//')) return value;
   } catch {}
   return '/profile';
+}
+
+function firstString(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+function safeUsername(seed: string, fallbackId: string) {
+  const base = seed
+    .toLowerCase()
+    .replace(/@.*$/, '')
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 24);
+  const username = base && !RESERVED_USERNAMES.has(base) ? base : `fwd_${fallbackId.slice(0, 8)}`;
+  return username || `fwd_${crypto.randomUUID().slice(0, 8)}`;
+}
+
+function getTreyTvIdentity(user: User) {
+  const identity = user.identities?.find((item) => item.provider === 'custom:trey-tv' || item.provider === 'trey-tv');
+  const identityData = identity?.identity_data ?? {};
+  const metadata = user.user_metadata ?? {};
+  const appMetadata = user.app_metadata ?? {};
+
+  return {
+    email: firstString(user.email, metadata.email, identityData.email),
+    displayName: firstString(
+      metadata.display_name,
+      metadata.full_name,
+      metadata.name,
+      identityData.display_name,
+      identityData.full_name,
+      identityData.name,
+      identityData.user_name,
+      user.email?.split('@')[0]
+    ),
+    avatarUrl: firstString(
+      metadata.avatar_url,
+      metadata.picture,
+      identityData.avatar_url,
+      identityData.picture
+    ),
+    provider: firstString(identity?.provider, appMetadata.provider, 'custom:trey-tv'),
+    providerUserId: firstString(identity?.id, identityData.sub, identityData.provider_id),
+  };
+}
+
+async function ensureProfilesRecord(user: User): Promise<ProfileCheck> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (data) return { exists: true, created: false };
+
+  const identity = getTreyTvIdentity(user);
+  const displayName = identity.displayName || identity.email.split('@')[0] || 'FWD User';
+  const username = safeUsername(identity.email || displayName, user.id);
+  const baseProfile = {
+    id: user.id,
+    username,
+    display_name: displayName,
+    avatar_url: identity.avatarUrl || null,
+    bio: null,
+    is_public: true,
+  };
+
+  const { error: insertError } = await supabase.from('profiles').insert(baseProfile);
+  if (!insertError) return { exists: false, created: true };
+
+  if (insertError.message.toLowerCase().includes('is_public')) {
+    const { is_public: _isPublic, ...compatibleProfile } = baseProfile;
+    const { error: compatibleError } = await supabase.from('profiles').insert(compatibleProfile);
+    if (!compatibleError) return { exists: false, created: true };
+    if (!compatibleError.message.toLowerCase().includes('duplicate')) throw compatibleError;
+  } else if (!insertError.message.toLowerCase().includes('duplicate')) {
+    throw insertError;
+  }
+
+  const retryProfile = {
+    ...baseProfile,
+    username: safeUsername(`${username}_${user.id.slice(0, 6)}`, user.id),
+  };
+  const { error: retryError } = await supabase.from('profiles').insert(retryProfile);
+  if (retryError) throw retryError;
+  return { exists: false, created: true };
+}
+
+async function ensureFwdProfileMirror(user: User) {
+  const identity = getTreyTvIdentity(user);
+  const displayName = identity.displayName || identity.email.split('@')[0] || 'FWD User';
+  const username = safeUsername(identity.email || displayName, user.id);
+
+  await supabase
+    .from('fwd_profiles')
+    .upsert(
+      {
+        user_id: user.id,
+        display_name: displayName,
+        username,
+        avatar_url: identity.avatarUrl || null,
+        connected_trey_tv_uid: identity.providerUserId || null,
+        identity_provider: identity.provider,
+        login_provider: identity.provider,
+        identity_verified_at: new Date().toISOString(),
+        identity_sync_status: 'synced',
+      },
+      { onConflict: 'user_id', ignoreDuplicates: true }
+    );
 }
 
 const AuthCallback: React.FC = () => {
@@ -45,8 +162,17 @@ const AuthCallback: React.FC = () => {
           if (!data.session) throw new Error('No sign-in code was returned.');
         }
 
+        const { data: userData, error: userError } = await supabase.auth.getUser();
+        if (userError) throw userError;
+        const authUser = userData.user;
+        if (!authUser) throw new Error('No authenticated FWD user was returned.');
+
+        const profileResult = await ensureProfilesRecord(authUser);
+        ensureFwdProfileMirror(authUser).catch(() => undefined);
+
         if (!alive) return;
-        navigate(consumeReturnTo(), { replace: true });
+        const returnTo = consumeReturnTo();
+        navigate(profileResult.created ? '/create-profile' : returnTo, { replace: true });
       } catch (err) {
         if (!alive) return;
         setStatus('error');

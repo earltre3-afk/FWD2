@@ -58,8 +58,12 @@ function randomBytes(len: number): Uint8Array {
   return buf;
 }
 
-function base64urlEncode(buf: ArrayBuffer): string {
-  return btoa(String.fromCharCode(...new Uint8Array(buf)))
+function base64urlEncode(buf: ArrayBuffer | ArrayBufferView): string {
+  const bytes = buf instanceof ArrayBuffer
+    ? new Uint8Array(buf)
+    : new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+
+  return btoa(String.fromCharCode(...bytes))
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/, '');

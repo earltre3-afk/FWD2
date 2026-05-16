@@ -8,6 +8,7 @@ export interface FwdProfile {
   display_name: string | null;
   avatar_url: string | null;
   bio: string | null;
+  is_public?: boolean | null;
 }
 
 interface AuthContextType {
