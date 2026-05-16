@@ -71,6 +71,21 @@ function logCallbackState(event: string, fields: Record<string, boolean | string
   console.info(CALLBACK_LOG_PREFIX, event, fields);
 }
 
+function readHashSessionParams() {
+  const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+  const hashParams = new URLSearchParams(hash);
+  const accessToken = hashParams.get('access_token');
+  const refreshToken = hashParams.get('refresh_token');
+
+  return {
+    hasHashParams: Boolean(hash),
+    hasHashAccessToken: Boolean(accessToken),
+    hasHashRefreshToken: Boolean(refreshToken),
+    accessToken,
+    refreshToken,
+  };
+}
+
 function isDuplicateError(error: { message?: string; code?: string }) {
   return error.code === '23505' || (error.message || '').toLowerCase().includes('duplicate');
 }
@@ -181,6 +196,9 @@ const AuthCallback: React.FC = () => {
         hasSession: false,
         hasUser: false,
         hasEmail: false,
+        hasHashParams: Boolean(window.location.hash),
+        hasHashAccessToken: false,
+        hasHashRefreshToken: false,
         profileLookupSuccess: false,
         profileUpsertSuccess: false,
         finalRedirect: '',
@@ -221,8 +239,28 @@ const AuthCallback: React.FC = () => {
             flowLog.exchangeSuccess = true;
           }
         } else {
-          logCallbackState('fatal_missing_code', flowLog);
-          throw new Error('No sign-in code was returned.');
+          const hashSession = readHashSessionParams();
+          flowLog.hasHashParams = hashSession.hasHashParams;
+          flowLog.hasHashAccessToken = hashSession.hasHashAccessToken;
+          flowLog.hasHashRefreshToken = hashSession.hasHashRefreshToken;
+
+          if (hashSession.accessToken && hashSession.refreshToken) {
+            const { error: setSessionError } = await supabase.auth.setSession({
+              access_token: hashSession.accessToken,
+              refresh_token: hashSession.refreshToken,
+            });
+            if (setSessionError) throw setSessionError;
+            flowLog.exchangeSuccess = true;
+            window.history.replaceState(null, document.title, `${window.location.pathname}${window.location.search}`);
+          } else {
+            const existingSession = await getConfirmedSession();
+            flowLog.hasSession = Boolean(existingSession);
+            if (!existingSession) {
+              logCallbackState('fatal_missing_code', flowLog);
+              throw new Error('No sign-in code was returned.');
+            }
+            flowLog.exchangeSuccess = true;
+          }
         }
 
         const session = await getConfirmedSession();
