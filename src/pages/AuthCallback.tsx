@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, Loader2, Sparkles } from 'lucide-react';
 import type { User } from '@supabase/supabase-js';
@@ -71,6 +71,19 @@ function logCallbackState(event: string, fields: Record<string, boolean | string
   console.info(CALLBACK_LOG_PREFIX, event, fields);
 }
 
+function isDuplicateError(error: { message?: string; code?: string }) {
+  return error.code === '23505' || (error.message || '').toLowerCase().includes('duplicate');
+}
+
+async function getConfirmedSession() {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const { data } = await supabase.auth.getSession();
+    if (data.session) return data.session;
+    await new Promise((resolve) => window.setTimeout(resolve, 120));
+  }
+  return null;
+}
+
 async function ensureProfilesRecord(user: User): Promise<ProfileCheck> {
   const { data, error } = await supabase
     .from('profiles')
@@ -100,17 +113,27 @@ async function ensureProfilesRecord(user: User): Promise<ProfileCheck> {
     const { is_public: _isPublic, ...compatibleProfile } = baseProfile;
     const { error: compatibleError } = await supabase.from('profiles').insert(compatibleProfile);
     if (!compatibleError) return { exists: false, created: true, upserted: true };
-    if (!compatibleError.message.toLowerCase().includes('duplicate')) throw compatibleError;
-  } else if (!insertError.message.toLowerCase().includes('duplicate')) {
+    if (!isDuplicateError(compatibleError)) throw compatibleError;
+  } else if (!isDuplicateError(insertError)) {
     throw insertError;
   }
+
+  const { data: existingAfterDuplicate, error: duplicateLookupError } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('id', user.id)
+    .maybeSingle();
+  if (!duplicateLookupError && existingAfterDuplicate) return { exists: true, created: false, upserted: true };
 
   const retryProfile = {
     ...baseProfile,
     username: safeUsername(`${username}_${user.id.slice(0, 6)}`, user.id),
   };
   const { error: retryError } = await supabase.from('profiles').insert(retryProfile);
-  if (retryError) throw retryError;
+  if (retryError) {
+    if (isDuplicateError(retryError)) return { exists: true, created: false, upserted: true };
+    throw retryError;
+  }
   return { exists: false, created: true, upserted: true };
 }
 
@@ -142,6 +165,7 @@ const AuthCallback: React.FC = () => {
   const [params] = useSearchParams();
   const [status, setStatus] = useState<Status>('loading');
   const [message, setMessage] = useState('Finishing your sign-in...');
+  const processedRef = useRef(false);
 
   useEffect(() => {
     let alive = true;
@@ -149,7 +173,27 @@ const AuthCallback: React.FC = () => {
     async function finishSignIn() {
       const error = params.get('error');
       const errorDescription = params.get('error_description');
+      const code = params.get('code');
+      const flowLog = {
+        hasCode: Boolean(code),
+        hasOAuthError: Boolean(error),
+        exchangeSuccess: false,
+        hasSession: false,
+        hasUser: false,
+        hasEmail: false,
+        profileLookupSuccess: false,
+        profileUpsertSuccess: false,
+        finalRedirect: '',
+      };
+
+      if (processedRef.current) {
+        logCallbackState('skip_already_processed', flowLog);
+        return;
+      }
+      processedRef.current = true;
+
       if (error) {
+        logCallbackState('fatal_oauth_error', flowLog);
         if (!alive) return;
         setStatus('error');
         setMessage(errorDescription || 'The sign-in request was canceled or failed.');
@@ -157,16 +201,6 @@ const AuthCallback: React.FC = () => {
       }
 
       try {
-        const code = params.get('code');
-        const flowLog = {
-          hasCode: Boolean(code),
-          exchangeSuccess: false,
-          hasSession: false,
-          hasUser: false,
-          hasEmail: false,
-          profileUpsertSuccess: false,
-          finalRedirect: '',
-        };
         logCallbackState('start', flowLog);
 
         if (code) {
@@ -178,8 +212,7 @@ const AuthCallback: React.FC = () => {
           throw new Error('No sign-in code was returned.');
         }
 
-        const { data: sessionData } = await supabase.auth.getSession();
-        const session = sessionData.session;
+        const session = await getConfirmedSession();
         flowLog.hasSession = Boolean(session);
         if (!session) {
           logCallbackState('fatal_missing_session', flowLog);
@@ -204,6 +237,7 @@ const AuthCallback: React.FC = () => {
         let profileError: unknown = null;
         try {
           profileResult = await ensureProfilesRecord(authUser);
+          flowLog.profileLookupSuccess = profileResult.exists || profileResult.created;
           flowLog.profileUpsertSuccess = profileResult.upserted;
         } catch (err) {
           profileError = err;
