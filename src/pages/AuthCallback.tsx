@@ -205,8 +205,21 @@ const AuthCallback: React.FC = () => {
 
         if (code) {
           const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-          if (exchangeError) throw exchangeError;
-          flowLog.exchangeSuccess = true;
+          if (exchangeError) {
+            const sessionAfterExchangeError = await getConfirmedSession();
+            flowLog.hasSession = Boolean(sessionAfterExchangeError);
+            if (!sessionAfterExchangeError) {
+              logCallbackState('fatal_exchange_failed', flowLog);
+              throw exchangeError;
+            }
+            flowLog.exchangeSuccess = true;
+            console.warn(CALLBACK_LOG_PREFIX, 'exchange_error_with_existing_session', {
+              message: exchangeError.message,
+              hasSession: flowLog.hasSession,
+            });
+          } else {
+            flowLog.exchangeSuccess = true;
+          }
         } else {
           logCallbackState('fatal_missing_code', flowLog);
           throw new Error('No sign-in code was returned.');
