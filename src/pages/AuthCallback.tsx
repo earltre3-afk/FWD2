@@ -6,9 +6,10 @@ import FwdLogo from '@/components/FwdLogo';
 import { supabase } from '@/lib/supabase';
 
 type Status = 'loading' | 'error';
-type ProfileCheck = { exists: boolean; created: boolean };
+type ProfileCheck = { exists: boolean; created: boolean; upserted: boolean };
 
 const RESERVED_USERNAMES = new Set(['admin', 'api', 'auth', 'embed', 'home', 'login', 'profile', 'signup']);
+const CALLBACK_LOG_PREFIX = '[FWD OAuth Callback]';
 
 function consumeReturnTo() {
   try {
@@ -66,6 +67,10 @@ function getTreyTvIdentity(user: User) {
   };
 }
 
+function logCallbackState(event: string, fields: Record<string, boolean | string>) {
+  console.info(CALLBACK_LOG_PREFIX, event, fields);
+}
+
 async function ensureProfilesRecord(user: User): Promise<ProfileCheck> {
   const { data, error } = await supabase
     .from('profiles')
@@ -74,11 +79,11 @@ async function ensureProfilesRecord(user: User): Promise<ProfileCheck> {
     .maybeSingle();
 
   if (error) throw error;
-  if (data) return { exists: true, created: false };
+  if (data) return { exists: true, created: false, upserted: true };
 
   const identity = getTreyTvIdentity(user);
-  const displayName = identity.displayName || identity.email.split('@')[0] || 'FWD User';
-  const username = safeUsername(identity.email || displayName, user.id);
+  const displayName = identity.displayName || (identity.email ? identity.email.split('@')[0] : '') || 'FWD User';
+  const username = safeUsername(identity.email || identity.providerUserId || displayName || user.id, user.id);
   const baseProfile = {
     id: user.id,
     username,
@@ -89,12 +94,12 @@ async function ensureProfilesRecord(user: User): Promise<ProfileCheck> {
   };
 
   const { error: insertError } = await supabase.from('profiles').insert(baseProfile);
-  if (!insertError) return { exists: false, created: true };
+  if (!insertError) return { exists: false, created: true, upserted: true };
 
   if (insertError.message.toLowerCase().includes('is_public')) {
     const { is_public: _isPublic, ...compatibleProfile } = baseProfile;
     const { error: compatibleError } = await supabase.from('profiles').insert(compatibleProfile);
-    if (!compatibleError) return { exists: false, created: true };
+    if (!compatibleError) return { exists: false, created: true, upserted: true };
     if (!compatibleError.message.toLowerCase().includes('duplicate')) throw compatibleError;
   } else if (!insertError.message.toLowerCase().includes('duplicate')) {
     throw insertError;
@@ -106,13 +111,13 @@ async function ensureProfilesRecord(user: User): Promise<ProfileCheck> {
   };
   const { error: retryError } = await supabase.from('profiles').insert(retryProfile);
   if (retryError) throw retryError;
-  return { exists: false, created: true };
+  return { exists: false, created: true, upserted: true };
 }
 
 async function ensureFwdProfileMirror(user: User) {
   const identity = getTreyTvIdentity(user);
-  const displayName = identity.displayName || identity.email.split('@')[0] || 'FWD User';
-  const username = safeUsername(identity.email || displayName, user.id);
+  const displayName = identity.displayName || (identity.email ? identity.email.split('@')[0] : '') || 'FWD User';
+  const username = safeUsername(identity.email || identity.providerUserId || displayName || user.id, user.id);
 
   await supabase
     .from('fwd_profiles')
@@ -153,26 +158,75 @@ const AuthCallback: React.FC = () => {
 
       try {
         const code = params.get('code');
+        const flowLog = {
+          hasCode: Boolean(code),
+          exchangeSuccess: false,
+          hasSession: false,
+          hasUser: false,
+          hasEmail: false,
+          profileUpsertSuccess: false,
+          finalRedirect: '',
+        };
+        logCallbackState('start', flowLog);
 
         if (code) {
           const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
           if (exchangeError) throw exchangeError;
+          flowLog.exchangeSuccess = true;
         } else {
-          const { data } = await supabase.auth.getSession();
-          if (!data.session) throw new Error('No sign-in code was returned.');
+          logCallbackState('fatal_missing_code', flowLog);
+          throw new Error('No sign-in code was returned.');
+        }
+
+        const { data: sessionData } = await supabase.auth.getSession();
+        const session = sessionData.session;
+        flowLog.hasSession = Boolean(session);
+        if (!session) {
+          logCallbackState('fatal_missing_session', flowLog);
+          throw new Error('No FWD session was created after sign-in.');
         }
 
         const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
-        const authUser = userData.user;
-        if (!authUser) throw new Error('No authenticated FWD user was returned.');
+        if (userError && !userData.user) {
+          logCallbackState('fatal_get_user_failed', flowLog);
+          throw userError;
+        }
 
-        const profileResult = await ensureProfilesRecord(authUser);
-        ensureFwdProfileMirror(authUser).catch(() => undefined);
+        const authUser = userData.user || session.user;
+        flowLog.hasUser = Boolean(authUser);
+        flowLog.hasEmail = Boolean(authUser?.email);
+        if (!authUser) {
+          logCallbackState('fatal_missing_user', flowLog);
+          throw new Error('No authenticated FWD user was returned.');
+        }
+
+        let profileResult: ProfileCheck = { exists: false, created: false, upserted: false };
+        let profileError: unknown = null;
+        try {
+          profileResult = await ensureProfilesRecord(authUser);
+          flowLog.profileUpsertSuccess = profileResult.upserted;
+        } catch (err) {
+          profileError = err;
+          console.warn(CALLBACK_LOG_PREFIX, 'profile_upsert_failed', {
+            message: err instanceof Error ? err.message : 'Unknown profile error',
+            hasSession: flowLog.hasSession,
+            hasUser: flowLog.hasUser,
+            hasEmail: flowLog.hasEmail,
+          });
+        }
+
+        ensureFwdProfileMirror(authUser).catch((err) => {
+          console.warn(CALLBACK_LOG_PREFIX, 'profile_mirror_failed', {
+            message: err instanceof Error ? err.message : 'Unknown profile mirror error',
+          });
+        });
 
         if (!alive) return;
         const returnTo = consumeReturnTo();
-        navigate(profileResult.created ? '/create-profile' : returnTo, { replace: true });
+        const finalRedirect = profileError || profileResult.created ? '/create-profile' : returnTo;
+        flowLog.finalRedirect = finalRedirect;
+        logCallbackState('success_redirect', flowLog);
+        navigate(finalRedirect, { replace: true });
       } catch (err) {
         if (!alive) return;
         setStatus('error');
