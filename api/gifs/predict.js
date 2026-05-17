@@ -1,4 +1,6 @@
 const MAX_MESSAGE = 500;
+const AI_MODEL = process.env.VERCEL_AI_MODEL || process.env.AI_GATEWAY_MODEL || 'openai/gpt-5.4';
+const AI_GATEWAY_URL = 'https://ai-gateway.vercel.sh/v1/chat/completions';
 const FALLBACK_INTENTS = [
   ['laugh', ['lol', 'funny', 'dead', 'laugh', 'hilarious', 'crying laughing']],
   ['side eye', ['sus', 'hmm', 'really', 'sure', 'shade', 'awkward']],
@@ -83,74 +85,91 @@ function heuristicPredict(message) {
 function sanitizePrediction(value, fallback) {
   const query = clean(value?.query || fallback.query, 80).toLowerCase() || fallback.query;
   const tags = Array.isArray(value?.tags) ? value.tags : fallback.tags;
+  const cleanTags = tags.map((tag) => clean(tag, 32).toLowerCase()).filter(Boolean).slice(0, 8);
+  const fallbackTags = (fallback.tags || []).map((tag) => clean(tag, 32).toLowerCase()).filter(Boolean).slice(0, 8);
   return {
     query,
     tone: clean(value?.tone || fallback.tone, 40).toLowerCase(),
     mood: clean(value?.mood || fallback.mood, 40),
-    tags: tags.map((tag) => clean(tag, 32).toLowerCase()).filter(Boolean).slice(0, 8),
+    tags: cleanTags.length ? cleanTags : fallbackTags,
     confidence: Math.max(0, Math.min(1, Number(value?.confidence || fallback.confidence))),
     reason: clean(value?.reason || fallback.reason, 140),
   };
 }
 
-async function openAiPredict(message, context, fallback) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return fallback;
+function gatewayToken(req) {
+  return process.env.AI_GATEWAY_API_KEY ||
+    process.env.VERCEL_AI_API_KEY ||
+    process.env.VERCEL_OIDC_TOKEN ||
+    req.headers['x-vercel-oidc-token'] ||
+    req.headers['X-Vercel-Oidc-Token'];
+}
 
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: process.env.OPENAI_PREDICTIVE_GIF_MODEL || process.env.OPENAI_CATEGORIZER_MODEL || 'gpt-4o-mini',
-      input: [{
-        role: 'user',
-        content: [{
-          type: 'input_text',
-          text: [
-            'Predict the best GIF search intent for a user while they type a message.',
-            'Return what GIFs should be recommended, not a reply to the message.',
-            'Use short social/reaction language such as "side eye", "laugh", "hype", "facts", "wow", "love", "awkward", "celebrate".',
-            `Context: ${clean(context, 40) || 'message'}`,
-            `Message draft: ${clean(message)}`,
-          ].join('\n'),
-        }],
-      }],
-      text: {
-        format: {
-          type: 'json_schema',
-          name: 'predictive_gif_intent',
-          strict: true,
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              query: { type: 'string' },
-              tone: { type: 'string' },
-              mood: { type: 'string' },
-              tags: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 8 },
-              confidence: { type: 'number', minimum: 0, maximum: 1 },
-              reason: { type: 'string' },
-            },
-            required: ['query', 'tone', 'mood', 'tags', 'confidence', 'reason'],
-          },
-        },
-      },
-    }),
+function logAiUnavailable(reason, extra = {}) {
+  console.warn('Vercel AI predict unavailable', {
+    reason,
+    hasGatewayKey: Boolean(process.env.AI_GATEWAY_API_KEY),
+    hasLegacyKey: Boolean(process.env.VERCEL_AI_API_KEY),
+    hasOidc: Boolean(process.env.VERCEL_OIDC_TOKEN),
+    model: AI_MODEL,
+    ...extra,
   });
+}
 
-  if (!response.ok) return fallback;
-  const payload = await response.json();
-  const text = payload.output_text || payload.output?.flatMap((item) => item.content || [])
-    .find((item) => item.type === 'output_text')?.text;
-  if (!text) return fallback;
+function parseJsonObject(text) {
   try {
     return JSON.parse(text);
   } catch {
-    return fallback;
+    const match = String(text || '').match(/\{[\s\S]*\}/);
+    return match ? JSON.parse(match[0]) : null;
   }
+}
+
+async function vercelAiPredict(req, message, context, fallback) {
+  const token = gatewayToken(req);
+  if (!token) {
+    logAiUnavailable('missing_token');
+    return { prediction: fallback, aiUsed: false };
+  }
+
+  const response = await fetch(AI_GATEWAY_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: AI_MODEL,
+      temperature: 0.2,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You predict GIF search intent while a user types.',
+            'Return what GIFs should be recommended, not a reply to the message.',
+            'Use short social/reaction language such as side eye, laugh, hype, facts, wow, love, awkward, celebrate.',
+            'Return only JSON. No markdown.',
+            'Schema: {"query":string,"tone":string,"mood":string,"tags":string[3..8],"confidence":number 0..1,"reason":string}',
+          ].join(' '),
+        },
+        {
+          role: 'user',
+          content: [`Context: ${clean(context, 40) || 'message'}`, `Message draft: ${clean(message)}`].join('\n'),
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    logAiUnavailable('gateway_response_not_ok', { status: response.status, bodyStart: errorText.slice(0, 180) });
+    return { prediction: fallback, aiUsed: false };
+  }
+  const payload = await response.json();
+  const content = payload.choices?.[0]?.message?.content;
+  const parsed = parseJsonObject(content);
+  if (!parsed) logAiUnavailable('parse_failed', { bodyStart: JSON.stringify(payload).slice(0, 180) });
+  return { prediction: parsed || fallback, aiUsed: Boolean(parsed) };
 }
 
 export default async function handler(req, res) {
@@ -161,12 +180,23 @@ export default async function handler(req, res) {
     const message = clean(body.message);
     const context = clean(body.context, 40);
     const fallback = heuristicPredict(message);
-    const prediction = await openAiPredict(message, context, fallback);
-    return json(res, 200, {
-      ok: true,
-      prediction: sanitizePrediction(prediction, fallback),
-      aiUsed: Boolean(process.env.OPENAI_API_KEY),
-    });
+    try {
+      const ai = await vercelAiPredict(req, message, context, fallback);
+      return json(res, 200, {
+        ok: true,
+        prediction: sanitizePrediction(ai.prediction, fallback),
+        aiUsed: ai.aiUsed,
+        model: AI_MODEL,
+      });
+    } catch (error) {
+      logAiUnavailable('exception', { message: error?.message || String(error) });
+      return json(res, 200, {
+        ok: true,
+        prediction: sanitizePrediction(fallback, fallback),
+        aiUsed: false,
+        model: AI_MODEL,
+      });
+    }
   } catch {
     const fallback = heuristicPredict('');
     return json(res, 200, { ok: true, prediction: fallback, aiUsed: false });

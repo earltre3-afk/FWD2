@@ -28,27 +28,152 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 // Categories and search terms → maps to fwd_gifs.category
+// Each entry can have an optional `offset` to get different results on re-runs
 const SEED_QUERIES = [
-  { query: 'trending reaction',        category: 'Reactions',    count: 50 },
-  { query: 'funny reaction',           category: 'Reactions',    count: 30 },
-  { query: 'black culture reaction',   category: 'Black Culture',count: 50 },
-  { query: 'black girl magic',         category: 'Black Culture',count: 30 },
-  { query: 'viral moment',             category: 'Memes',        count: 30 },
-  { query: 'meme funny',               category: 'Memes',        count: 30 },
-  { query: 'hip hop dance',            category: 'Music',        count: 25 },
-  { query: 'music vibe',               category: 'Music',        count: 20 },
-  { query: 'nba basketball',           category: 'Sports',       count: 20 },
-  { query: 'sports celebration',       category: 'Sports',       count: 20 },
-  { query: 'tv show reaction',         category: 'TV & Movies',  count: 25 },
-  { query: 'movie scene iconic',       category: 'TV & Movies',  count: 25 },
-  { query: 'video game gaming',        category: 'Gaming',       count: 20 },
-  { query: 'aesthetic chill vibes',    category: 'Clips',        count: 20 },
-  { query: 'new trending 2024',        category: 'New',          count: 20 },
-  { query: 'excited celebrate hype',   category: 'Reactions',    count: 20 },
-  { query: 'side eye shade',           category: 'Reactions',    count: 20 },
-  { query: 'dancing party',            category: 'Music',        count: 20 },
-  { query: 'laughing hysterically',    category: 'Reactions',    count: 20 },
-  { query: 'shocked surprised',        category: 'Reactions',    count: 20 },
+  // ── Reactions ──────────────────────────────────────────────────
+  { query: 'trending reaction',        category: 'Reactions',    count: 50, offset: 50 },
+  { query: 'funny reaction',           category: 'Reactions',    count: 30, offset: 30 },
+  { query: 'excited celebrate hype',   category: 'Reactions',    count: 25, offset: 25 },
+  { query: 'side eye shade',           category: 'Reactions',    count: 25, offset: 25 },
+  { query: 'laughing hysterically',    category: 'Reactions',    count: 25, offset: 25 },
+  { query: 'shocked surprised',        category: 'Reactions',    count: 25, offset: 25 },
+  { query: 'clapping applause',        category: 'Reactions',    count: 20 },
+  { query: 'eye roll sassy',           category: 'Reactions',    count: 20 },
+  { query: 'thumbs up approval',       category: 'Reactions',    count: 20 },
+  { query: 'facepalm cringe',          category: 'Reactions',    count: 20 },
+  { query: 'mind blown wow',           category: 'Reactions',    count: 20 },
+  { query: 'nope bye leaving',         category: 'Reactions',    count: 20 },
+  { query: 'crying tears sad',         category: 'Reactions',    count: 20 },
+  { query: 'angry mad furious',        category: 'Reactions',    count: 20 },
+  { query: 'happy dance joy',          category: 'Reactions',    count: 20 },
+  { query: 'confused huh what',        category: 'Reactions',    count: 20 },
+  { query: 'awkward uncomfortable',    category: 'Reactions',    count: 20 },
+  { query: 'seriously really omg',     category: 'Reactions',    count: 20 },
+  { query: 'love heart emoji',         category: 'Reactions',    count: 20 },
+  { query: 'tea spilling drama',       category: 'Reactions',    count: 20 },
+
+  // ── Black Culture ──────────────────────────────────────────────
+  { query: 'black culture reaction',   category: 'Black Culture',count: 50, offset: 20 },
+  { query: 'black girl magic',         category: 'Black Culture',count: 30, offset: 30 },
+  { query: 'black joy celebration',    category: 'Black Culture',count: 25 },
+  { query: 'slay queen werk',          category: 'Black Culture',count: 25 },
+  { query: 'periodt facts no cap',     category: 'Black Culture',count: 25 },
+  { query: 'real housewives reaction', category: 'Black Culture',count: 25 },
+  { query: 'shade throwing iconic',    category: 'Black Culture',count: 20 },
+  { query: 'black excellence proud',   category: 'Black Culture',count: 20 },
+  { query: 'fresh prince bel air',     category: 'Black Culture',count: 20 },
+  { query: 'martin lawrence funny',    category: 'Black Culture',count: 20 },
+  { query: 'living single girlfriends',category: 'Black Culture',count: 20 },
+  { query: 'insecure issa rae',        category: 'Black Culture',count: 20 },
+  { query: 'atlanta tv show',          category: 'Black Culture',count: 20 },
+  { query: 'power book tv',            category: 'Black Culture',count: 15 },
+  { query: 'pose fx ballroom',         category: 'Black Culture',count: 15 },
+
+  // ── Memes ──────────────────────────────────────────────────────
+  { query: 'viral moment',             category: 'Memes',        count: 30, offset: 30 },
+  { query: 'meme funny',               category: 'Memes',        count: 30, offset: 30 },
+  { query: 'internet meme classic',    category: 'Memes',        count: 25 },
+  { query: 'relatable mood same',      category: 'Memes',        count: 25 },
+  { query: 'drake hotline bling',      category: 'Memes',        count: 20 },
+  { query: 'distracted boyfriend',     category: 'Memes',        count: 15 },
+  { query: 'this is fine dog',         category: 'Memes',        count: 15 },
+  { query: 'success kid fist',         category: 'Memes',        count: 15 },
+  { query: 'ugandan knuckles',         category: 'Memes',        count: 15 },
+  { query: 'surprised pikachu face',   category: 'Memes',        count: 20 },
+  { query: 'woman yelling cat',        category: 'Memes',        count: 20 },
+  { query: 'bernie sanders mittens',   category: 'Memes',        count: 15 },
+  { query: 'pointing spiderman',       category: 'Memes',        count: 20 },
+  { query: 'two buttons decision',     category: 'Memes',        count: 15 },
+  { query: 'nobody absolutely nobody', category: 'Memes',        count: 20 },
+
+  // ── Music ──────────────────────────────────────────────────────
+  { query: 'hip hop dance',            category: 'Music',        count: 25, offset: 25 },
+  { query: 'music vibe',               category: 'Music',        count: 20, offset: 20 },
+  { query: 'dancing party',            category: 'Music',        count: 20, offset: 20 },
+  { query: 'concert crowd hype',       category: 'Music',        count: 20 },
+  { query: 'rap freestyle bars',       category: 'Music',        count: 20 },
+  { query: 'beyonce performance',      category: 'Music',        count: 20 },
+  { query: 'drake music video',        category: 'Music',        count: 20 },
+  { query: 'rihanna music',            category: 'Music',        count: 20 },
+  { query: 'cardi b wap',              category: 'Music',        count: 15 },
+  { query: 'lizzo juice',              category: 'Music',        count: 15 },
+  { query: 'doja cat say so',          category: 'Music',        count: 15 },
+  { query: 'bad bunny reggaeton',      category: 'Music',        count: 15 },
+  { query: 'travis scott concert',     category: 'Music',        count: 15 },
+  { query: 'dj spinning turntable',    category: 'Music',        count: 15 },
+  { query: 'headphones music listen',  category: 'Music',        count: 15 },
+
+  // ── Sports ─────────────────────────────────────────────────────
+  { query: 'nba basketball',           category: 'Sports',       count: 20, offset: 20 },
+  { query: 'sports celebration',       category: 'Sports',       count: 20, offset: 20 },
+  { query: 'lebron james dunk',        category: 'Sports',       count: 20 },
+  { query: 'stephen curry three',      category: 'Sports',       count: 20 },
+  { query: 'nfl touchdown catch',      category: 'Sports',       count: 20 },
+  { query: 'soccer goal celebration',  category: 'Sports',       count: 20 },
+  { query: 'messi ronaldo goal',       category: 'Sports',       count: 20 },
+  { query: 'boxing knockout punch',    category: 'Sports',       count: 15 },
+  { query: 'tennis ace serve',         category: 'Sports',       count: 15 },
+  { query: 'olympic gold medal',       category: 'Sports',       count: 15 },
+  { query: 'simone biles gymnastics',  category: 'Sports',       count: 15 },
+  { query: 'usain bolt running',       category: 'Sports',       count: 15 },
+  { query: 'espn highlights',          category: 'Sports',       count: 15 },
+
+  // ── TV & Movies ────────────────────────────────────────────────
+  { query: 'tv show reaction',         category: 'TV & Movies',  count: 25, offset: 25 },
+  { query: 'movie scene iconic',       category: 'TV & Movies',  count: 25, offset: 25 },
+  { query: 'the office funny',         category: 'TV & Movies',  count: 20 },
+  { query: 'parks recreation',         category: 'TV & Movies',  count: 20 },
+  { query: 'brooklyn nine nine',       category: 'TV & Movies',  count: 20 },
+  { query: 'friends tv classic',       category: 'TV & Movies',  count: 20 },
+  { query: 'game of thrones',          category: 'TV & Movies',  count: 20 },
+  { query: 'marvel avengers',          category: 'TV & Movies',  count: 20 },
+  { query: 'star wars',                category: 'TV & Movies',  count: 20 },
+  { query: 'harry potter magic',       category: 'TV & Movies',  count: 15 },
+  { query: 'breaking bad walter',      category: 'TV & Movies',  count: 15 },
+  { query: 'stranger things eleven',   category: 'TV & Movies',  count: 15 },
+  { query: 'succession hbo',           category: 'TV & Movies',  count: 15 },
+  { query: 'euphoria zendaya',         category: 'TV & Movies',  count: 15 },
+  { query: 'squid game netflix',       category: 'TV & Movies',  count: 15 },
+  { query: 'schitts creek funny',      category: 'TV & Movies',  count: 15 },
+  { query: 'ted lasso believe',        category: 'TV & Movies',  count: 15 },
+
+  // ── Gaming ─────────────────────────────────────────────────────
+  { query: 'video game gaming',        category: 'Gaming',       count: 20, offset: 20 },
+  { query: 'fortnite victory',         category: 'Gaming',       count: 20 },
+  { query: 'minecraft build',          category: 'Gaming',       count: 15 },
+  { query: 'gta grand theft auto',     category: 'Gaming',       count: 15 },
+  { query: 'among us impostor',        category: 'Gaming',       count: 15 },
+  { query: 'call of duty warzone',     category: 'Gaming',       count: 15 },
+  { query: 'league of legends',        category: 'Gaming',       count: 15 },
+  { query: 'pokemon pikachu',          category: 'Gaming',       count: 15 },
+  { query: 'zelda link nintendo',      category: 'Gaming',       count: 15 },
+  { query: 'gaming rage controller',   category: 'Gaming',       count: 15 },
+  { query: 'esports pro player',       category: 'Gaming',       count: 15 },
+  { query: 'twitch streamer',          category: 'Gaming',       count: 15 },
+
+  // ── Clips / Aesthetic ──────────────────────────────────────────
+  { query: 'aesthetic chill vibes',    category: 'Clips',        count: 20, offset: 20 },
+  { query: 'city lights night drive',  category: 'Clips',        count: 20 },
+  { query: 'sunset beach ocean',       category: 'Clips',        count: 20 },
+  { query: 'rain window cozy',         category: 'Clips',        count: 15 },
+  { query: 'neon lights tokyo',        category: 'Clips',        count: 15 },
+  { query: 'lofi chill study',         category: 'Clips',        count: 15 },
+  { query: 'space stars galaxy',       category: 'Clips',        count: 15 },
+  { query: 'coffee morning cafe',      category: 'Clips',        count: 15 },
+  { query: 'nature forest peaceful',   category: 'Clips',        count: 15 },
+  { query: 'vaporwave retro 80s',      category: 'Clips',        count: 15 },
+
+  // ── New / Trending ─────────────────────────────────────────────
+  { query: 'new trending 2024',        category: 'New',          count: 25, offset: 25 },
+  { query: 'viral tiktok trend',       category: 'New',          count: 25 },
+  { query: 'gen z slang',              category: 'New',          count: 20 },
+  { query: 'trending meme 2024',       category: 'New',          count: 20 },
+  { query: 'social media moment',      category: 'New',          count: 20 },
+  { query: 'its giving energy',        category: 'New',          count: 20 },
+  { query: 'no cap lowkey',            category: 'New',          count: 20 },
+  { query: 'bussin fr fr',             category: 'New',          count: 20 },
+  { query: 'main character energy',    category: 'New',          count: 20 },
+  { query: 'vibe check passed',        category: 'New',          count: 15 },
 ];
 
 async function fetchGiphy(query, limit, offset = 0) {
@@ -125,10 +250,10 @@ async function seed() {
   console.log(`  ✓ ${trending.length} trending GIFs`);
 
   // 2. Category queries
-  for (const { query, category, count } of SEED_QUERIES) {
+  for (const { query, category, count, offset } of SEED_QUERIES) {
     try {
       process.stdout.write(`  Fetching "${query}"...`);
-      const items = await fetchGiphy(query, count);
+      const items = await fetchGiphy(query, count, offset || 0);
       let added = 0;
       items.forEach(item => {
         const row = toRow(item, category, query);

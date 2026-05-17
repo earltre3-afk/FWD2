@@ -3,6 +3,7 @@ import {
   rapidReactionSearch,
   searchLocalReactions,
   fallbackReactions,
+  endlessReactions,
   dedupeReactionAssets,
 } from '@/lib/rapidReactionScout';
 import type { ReactionAsset, ReactionSearchResponse } from '@/types/reactions';
@@ -17,17 +18,16 @@ export function useRapidReactionScout(query: string, pageSize = PAGE_SIZE) {
   );
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [nextCursor, setNextCursor] = useState<string | null>(String(pageSize));
   const [attribution, setAttribution] = useState<Attribution>([]);
   const [sourcesUsed, setSourcesUsed] = useState<string[]>(['fallback']);
 
   const requestIdRef = useRef(0);
-  // Keep a stable ref to the current query for use inside loadMore callback
+  const loadedCountRef = useRef(pageSize);
   const queryRef = useRef(query);
   queryRef.current = query;
 
-  // ── First page: reset + fetch whenever query changes ──────────────────────
   useEffect(() => {
     const requestId = ++requestIdRef.current;
     const controller = new AbortController();
@@ -36,8 +36,9 @@ export function useRapidReactionScout(query: string, pageSize = PAGE_SIZE) {
     if (!trimmed || trimmed.length < 2) {
       const fb = fallbackReactions('', pageSize);
       setResults(fb);
-      setHasMore(false);
-      setNextCursor(null);
+      loadedCountRef.current = fb.length;
+      setHasMore(true);
+      setNextCursor(String(fb.length));
       setLoading(false);
       setLoadingMore(false);
       setAttribution([]);
@@ -45,10 +46,10 @@ export function useRapidReactionScout(query: string, pageSize = PAGE_SIZE) {
       return () => controller.abort();
     }
 
-    // Show local results immediately while the network request is in-flight
     const local = searchLocalReactions(trimmed, pageSize);
     setResults(local.length ? local : []);
-    setHasMore(false);
+    loadedCountRef.current = local.length;
+    setHasMore(true);
     setNextCursor(null);
     setLoading(true);
 
@@ -57,8 +58,9 @@ export function useRapidReactionScout(query: string, pageSize = PAGE_SIZE) {
         .then((res) => {
           if (requestIdRef.current !== requestId) return;
           setResults(res.results);
-          setHasMore(res.hasMore);
-          setNextCursor(res.nextCursor);
+          loadedCountRef.current = res.results.length;
+          setHasMore(true);
+          setNextCursor(res.nextCursor || String(res.results.length));
           setAttribution(res.attribution);
           setSourcesUsed(res.sourcesUsed);
           setLoading(false);
@@ -67,8 +69,9 @@ export function useRapidReactionScout(query: string, pageSize = PAGE_SIZE) {
           if (requestIdRef.current !== requestId || controller.signal.aborted) return;
           const fb = local.length ? local : fallbackReactions(trimmed, pageSize);
           setResults(fb);
-          setHasMore(false);
-          setNextCursor(null);
+          loadedCountRef.current = fb.length;
+          setHasMore(true);
+          setNextCursor(String(fb.length));
           setLoading(false);
         });
     }, 180);
@@ -79,37 +82,51 @@ export function useRapidReactionScout(query: string, pageSize = PAGE_SIZE) {
     };
   }, [query, pageSize]);
 
-  // ── Load next page ────────────────────────────────────────────────────────
   const loadMore = useCallback(async () => {
-    if (!hasMore || !nextCursor || loadingMore) return;
+    if (loadingMore) return;
     const trimmed = queryRef.current.trim();
-    if (!trimmed || trimmed.length < 2) return;
+    const queryForPage = trimmed.length >= 2 ? trimmed : '';
 
     setLoadingMore(true);
     try {
       const res = await rapidReactionSearch({
-        query: trimmed,
+        query: queryForPage,
         limit: pageSize,
-        cursor: nextCursor,
+        cursor: nextCursor || String(loadedCountRef.current),
       });
-      setResults((prev: ReactionAsset[]) => dedupeReactionAssets([...prev, ...res.results]));
-      setHasMore(res.hasMore);
-      setNextCursor(res.nextCursor);
+
+      setResults((prev) => {
+        const merged = dedupeReactionAssets([...prev, ...res.results]);
+        if (merged.length > prev.length) {
+          loadedCountRef.current = merged.length;
+          return merged;
+        }
+
+        const eternal = endlessReactions(queryForPage, pageSize, loadedCountRef.current);
+        loadedCountRef.current += eternal.length;
+        return [...prev, ...eternal];
+      });
+
+      setHasMore(true);
+      setNextCursor(res.nextCursor || String(loadedCountRef.current + pageSize));
       if (res.attribution.length) {
-        setAttribution((prev: Attribution) => [
+        setAttribution((prev) => [
           ...prev,
-          ...res.attribution.filter((a) => !prev.some((p: Attribution[number]) => p.source === a.source)),
+          ...res.attribution.filter((a) => !prev.some((p) => p.source === a.source)),
         ]);
       }
-      setSourcesUsed((prev: string[]) => Array.from(new Set([...prev, ...res.sourcesUsed])));
+      setSourcesUsed((prev) => Array.from(new Set([...prev, ...res.sourcesUsed])));
     } catch {
-      // loadMore failure is silent — keep existing results intact
+      const eternal = endlessReactions(queryForPage, pageSize, loadedCountRef.current);
+      loadedCountRef.current += eternal.length;
+      setResults((prev) => [...prev, ...eternal]);
+      setHasMore(true);
+      setNextCursor(String(loadedCountRef.current));
     } finally {
       setLoadingMore(false);
     }
-  }, [hasMore, nextCursor, loadingMore, pageSize]);
+  }, [nextCursor, loadingMore, pageSize]);
 
-  // Legacy alias so existing callers using `scouting` keep compiling
   const scouting = loading;
 
   return { results, loading, scouting, loadingMore, hasMore, loadMore, attribution, sourcesUsed };

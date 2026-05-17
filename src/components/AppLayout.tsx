@@ -5,6 +5,7 @@ import FwdLogo from '@/components/FwdLogo';
 import AuthModal from '@/components/AuthModal';
 import { useAuth } from '@/contexts/AuthContext';
 import { GIFS } from '@/data/gifs';
+import FwdAnimatedGif from '@/components/FwdAnimatedGif';
 
 const FeatureCard: React.FC<{ icon: any; title: string; desc: string; color: string }> = ({ icon: Icon, title, desc, color }) => (
   <div className="glass-strong rounded-2xl p-5 border border-fuchsia-500/20 hover:border-fuchsia-500/60 transition-all hover:-translate-y-1 group">
@@ -95,8 +96,8 @@ const AppLayout: React.FC = () => {
 
         <div id="preview" className="mt-16 grid grid-cols-3 md:grid-cols-6 gap-3 md:gap-4 max-w-4xl mx-auto">
           {previewGifs.map((g, i) => (
-            <div key={g.id} className={`relative rounded-2xl overflow-hidden border border-fuchsia-500/30 ${i % 2 ? 'translate-y-4' : ''}`}>
-              <img src={g.image} alt={g.title} className="w-full aspect-square object-cover" />
+            <div key={g.id} className={`relative rounded-2xl overflow-hidden border border-fuchsia-500/30 aspect-square ${i % 2 ? 'translate-y-4' : ''}`}>
+              <FwdAnimatedGif gifUrl={g.image} stillUrl={g.still_url} title={g.title} className="w-full h-full object-cover" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
               <span className="absolute bottom-2 left-2 text-[10px] font-bold text-white">{g.title}</span>
             </div>
@@ -140,7 +141,9 @@ const AppLayout: React.FC = () => {
               <FwdLogo size="sm" />
               <div className="grid grid-cols-2 gap-2 mt-3">
                 {GIFS.slice(6, 10).map(g => (
-                  <img key={g.id} src={g.image} alt={g.title} className="aspect-square object-cover rounded-xl border border-fuchsia-500/20" />
+                  <div key={g.id} className="aspect-square border border-fuchsia-500/20 rounded-xl overflow-hidden">
+                    <FwdAnimatedGif gifUrl={g.image} stillUrl={g.still_url} title={g.title} className="w-full h-full object-cover" />
+                  </div>
                 ))}
               </div>
               <div className="mt-3 text-xs text-zinc-500 text-center">Powered by FWD</div>

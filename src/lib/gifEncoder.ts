@@ -48,7 +48,7 @@ export async function videoFileToGif(
     : Math.min(opts.endSec ?? 10, 10);
 
   const frameDurationMs = 1000 / fps;
-  const gifDelay = Math.round(frameDurationMs / 10); // gifenc uses 1/100s units
+  const gifDelay = Math.round(frameDurationMs);
 
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -71,7 +71,7 @@ export async function videoFileToGif(
       const { data } = ctx.getImageData(0, 0, width, height);
       const palette = quantize(data, 256);
       const index = applyPalette(data, palette);
-      encoder.writeFrame(index, width, height, { palette, delay: gifDelay });
+      encoder.writeFrame(index, width, height, { palette, delay: gifDelay, repeat: 0 });
       framesEncoded++;
       onProgress?.(Math.round((framesEncoded / totalFrames) * 100));
     }
@@ -137,7 +137,7 @@ export async function videoFileToGif(
         const data = rawFrames[i];
         const palette = quantize(data, 256);
         const index = applyPalette(data, palette);
-        encoder.writeFrame(index, width, height, { palette, delay: gifDelay });
+        encoder.writeFrame(index, width, height, { palette, delay: gifDelay, repeat: 0 });
         onProgress?.(Math.round(((i + 1) / rawFrames.length) * 100));
       }
 

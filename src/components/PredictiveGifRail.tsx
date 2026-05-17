@@ -43,7 +43,8 @@ const PredictiveGifRail: React.FC<Props> = ({ message, context = 'message', limi
             title={asset.title}
           >
             <FwdAnimatedGif
-              gifUrl={asset.previewUrl || asset.gifUrl}
+              gifUrl={asset.gifUrl || asset.previewUrl}
+              stillUrl={asset.previewUrl && asset.previewUrl !== asset.gifUrl ? asset.previewUrl : undefined}
               title={asset.title}
               className="h-full w-full object-cover"
             />

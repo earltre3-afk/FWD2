@@ -58,7 +58,7 @@ async function storeFallback(asset) {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseUrl || !serviceKey) return { stored: false, reason: 'storage_not_configured' };
 
-  const source = 'fallback';
+  const source = normalizeText(asset.source || 'fallback', 20);
   const sourceId = normalizeText(asset.sourceId || asset.id || asset.gifUrl, 180);
   const usageCount = await getExistingUsage(supabaseUrl, serviceKey, source, sourceId);
   const now = new Date().toISOString();
@@ -74,8 +74,8 @@ async function storeFallback(asset) {
     width: Number(asset.width) || null,
     height: Number(asset.height) || null,
     share_url: isSafeUrl(asset.shareUrl) ? asset.shareUrl : null,
-    attribution_label: null,
-    attribution_url: null,
+    attribution_label: normalizeText(asset.attributionLabel || '', 100) || null,
+    attribution_url: isSafeUrl(asset.attributionUrl) ? asset.attributionUrl : null,
     content_rating: normalizeText(asset.contentRating || 'safe', 40),
     usage_count: usageCount + 1,
     last_used_at: now,
@@ -103,7 +103,14 @@ export default async function handler(req, res) {
     const body = await readBody(req);
     const asset = body?.asset || {};
 
-    if (asset.source !== 'fallback') {
+    // Only capture externally-scouted GIFs — skip native FWD library entries
+    if (asset.source === 'fwd') {
+      return json(res, 200, { ok: true, captured: false });
+    }
+
+    // Must be a recognized external source
+    const validSources = ['giphy', 'tenor', 'fallback'];
+    if (!validSources.includes(asset.source)) {
       return json(res, 200, { ok: true, captured: false });
     }
 

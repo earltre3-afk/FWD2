@@ -8,6 +8,7 @@ export interface Gif {
   title: string;
   image: string;       // gif_url in DB
   still_url?: string;
+  webm_url?: string;
   mp4_url?: string;    // H.264 MP4 rendition — pass as mp4Url to FwdMediaPlayer for Safari
   tags: string[];
   category: string;
@@ -20,6 +21,8 @@ export interface Gif {
   save_count?: number;
   like_count?: number;
   visibility?: string;
+  provider?: string;
+  provider_gif_id?: string;
 }
 
 export interface Collection {
@@ -139,6 +142,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     save_count: g.save_count ?? 0,
     like_count: g.like_count ?? 0,
     visibility: g.visibility || 'public',
+    mp4_url: g.mp4_url,
+    webm_url: g.webm_url,
+    provider: g.provider,
+    provider_gif_id: g.provider_gif_id,
+  });
+
+  const savedProviderGifToGif = (g: any): Gif => ({
+    id: `saved:${g.provider}:${g.provider_gif_id}`,
+    title: g.title || 'Saved GIF',
+    image: g.media_url || g.mp4_url || g.gif_url || g.preview_url || '',
+    still_url: g.poster_url || g.preview_url || undefined,
+    mp4_url: g.mp4_url || undefined,
+    webm_url: g.webm_url || undefined,
+    tags: [g.original_query, g.ai_scout_query, g.provider].filter(Boolean),
+    category: 'Scout',
+    mood: 'AI Scout',
+    user_id: g.user_id,
+    visibility: g.is_private === false ? 'public' : 'private',
+    provider: g.provider,
+    provider_gif_id: g.provider_gif_id,
   });
 
   const ensureProfile = useCallback(async () => {
@@ -174,10 +197,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
-    const [favRes, colRes, gifRes] = await Promise.all([
+    const [favRes, colRes, gifRes, savedProviderRes] = await Promise.all([
       supabase.from('fwd_favorites').select('gif_id').eq('user_id', user.id),
       supabase.from('fwd_collections').select('*').eq('user_id', user.id).order('created_at', { ascending: true }),
       supabase.from('fwd_gifs').select('*').eq('owner_user_id', user.id).order('created_at', { ascending: false }),
+      supabase.from('saved_gifs').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
     ]);
 
     const favIds: string[] = (favRes.data || []).map((r: any) => r.gif_id).filter(Boolean);
@@ -201,8 +225,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       favGifObjects = (favGifData || []).map(dbGifToGif);
     }
 
-    // savedLibrary = user's created GIFs + other GIFs they favorited
-    setSavedLibrary([...userGifList, ...favGifObjects]);
+    const savedProviderGifs = (savedProviderRes.data || []).map(savedProviderGifToGif).filter((g) => Boolean(g.image));
+
+    // savedLibrary = user's created GIFs + other GIFs they favorited + provider GIFs selected from AI Scout
+    setSavedLibrary([...savedProviderGifs, ...userGifList, ...favGifObjects]);
   }, [user]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
@@ -236,8 +262,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setFavorites(prev => prev.filter(x => x !== id));
     setSavedLibrary(prev => prev.filter(g => g.id !== id));
     if (user) {
-      await supabase.from('fwd_favorites').delete().eq('user_id', user.id).eq('gif_id', id);
-      removeGif(id, 'fwd');
+      if (id.startsWith('saved:')) {
+        const [, provider, providerGifId] = id.split(':');
+        if (provider && providerGifId) {
+          await supabase
+            .from('saved_gifs')
+            .delete()
+            .eq('user_id', user.id)
+            .eq('provider', provider)
+            .eq('provider_gif_id', providerGifId);
+        }
+      } else {
+        await supabase.from('fwd_favorites').delete().eq('user_id', user.id).eq('gif_id', id);
+        removeGif(id, 'fwd');
+      }
     }
   }, [user, removeGif]);
 

@@ -137,6 +137,32 @@ export function fallbackReactions(query: string, limit = DEFAULT_LIMIT) {
   ]).slice(0, limit);
 }
 
+export function endlessReactions(query: string, limit = DEFAULT_LIMIT, offset = 0) {
+  const normalized = normalizeReactionQuery(query);
+  const localMatches = searchLocalReactions(normalized, GIFS.length);
+  const fallbackPool = fallbackReactions(normalized, GIFS.length);
+  const pool = dedupeReactionAssets([
+    ...localMatches,
+    ...fallbackPool,
+    ...GIFS.map((gif) => ({
+      ...gifToReactionAsset(gif, normalized),
+      source: 'fallback' as const,
+    })),
+  ]);
+
+  if (!pool.length) return [];
+
+  return Array.from({ length: limit }, (_, index) => {
+    const cycleIndex = offset + index;
+    const base = pool[cycleIndex % pool.length];
+    return {
+      ...base,
+      id: `${base.id}:loop:${cycleIndex}`,
+      sourceId: base.sourceId || base.id.replace(/^fwd:/, ''),
+    };
+  });
+}
+
 export function trackReactionSearch(event: string, payload: Record<string, unknown>) {
   try {
     window.dispatchEvent(new CustomEvent('fwd:analytics', { detail: { event, payload } }));
@@ -256,15 +282,15 @@ export async function rapidReactionSearch({
     if (signal?.aborted) throw error;
     trackReactionSearch('reaction_search_failed', { query: normalized });
     const fallback = isFirstPage
-      ? dedupeReactionAssets([...local, ...fallbackReactions(normalized, limit)]).slice(0, limit)
-      : fallbackReactions(normalized, limit);
+      ? dedupeReactionAssets([...local, ...endlessReactions(normalized, limit, 0)]).slice(0, limit)
+      : endlessReactions(normalized, limit, Number(cursor) || 0);
     return {
       query: normalized,
       limit,
       results: fallback,
       sourcesUsed: Array.from(new Set(fallback.map((item) => item.source))),
-      hasMore: false,
-      nextCursor: null,
+      hasMore: true,
+      nextCursor: String((Number(cursor) || 0) + limit),
       fallbackUsed: true,
       attribution: [],
     };

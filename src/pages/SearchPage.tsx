@@ -29,7 +29,7 @@ const FILTERS = ['All', 'Reactions', 'Memes', 'TV & Movies', 'People', 'Music'];
 const SearchPage: React.FC = () => {
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
-  const { recentSearches, addRecentSearch, clearRecentSearches, refresh } = useAppContext();
+  const { recentSearches, addRecentSearch, clearRecentSearches, refresh, toggleFavorite } = useAppContext();
   const { signInWithEmail, user } = useAuth();
   const [query, setQuery] = useState(params.get('q') || '');
   const [filter, setFilter] = useState('All');
@@ -56,13 +56,32 @@ const SearchPage: React.FC = () => {
     if (!sentinel) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting) loadMore();
+        if (entries[0].isIntersecting && !loadingMore && hasMore) loadMore();
       },
-      { rootMargin: '200px' },
+      { rootMargin: '700px 0px' },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [loadMore]);
+  }, [hasMore, loadMore, loadingMore, results.length]);
+
+  useEffect(() => {
+    const onScroll = () => {
+      const doc = document.documentElement;
+      const distanceFromBottom = doc.scrollHeight - (window.scrollY + window.innerHeight);
+      if (distanceFromBottom < 900 && !loadingMore && hasMore) loadMore();
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [hasMore, loadMore, loadingMore, results.length]);
+
+  useEffect(() => {
+    if (loadingMore || !hasMore || results.length === 0) return;
+    if (document.documentElement.scrollHeight <= window.innerHeight + 240) {
+      const timer = window.setTimeout(() => loadMore(), 80);
+      return () => window.clearTimeout(timer);
+    }
+  }, [hasMore, loadMore, loadingMore, results.length]);
 
   useEffect(() => {
     const q = query.trim();
@@ -130,6 +149,31 @@ const SearchPage: React.FC = () => {
   };
 
   const saveScoutedGif = async (gif: GifScoutResult) => {
+    if (gif.provider === 'fwd') {
+      if (!user) {
+        toast({ title: 'Sign in to save', description: 'Sign in to keep this FWD in your library.' });
+        return;
+      }
+      const fwdGif = reactionAssetToGif({
+        id: `fwd:${gif.providerGifId}`,
+        source: 'fwd',
+        sourceId: gif.providerGifId,
+        query: gif.scoutQuery || query,
+        title: gif.title,
+        tags: Array.isArray(gif.metadata?.tags) ? gif.metadata.tags as string[] : [gif.scoutQuery || query].filter(Boolean),
+        previewUrl: gif.previewUrl,
+        gifUrl: gif.gifUrl || gif.mediaUrl,
+        width: gif.width,
+        height: gif.height,
+        shareUrl: gif.sourceUrl,
+        contentRating: gif.rating,
+      });
+      await toggleFavorite(fwdGif.id.replace(/^fwd:/, ''), { ...fwdGif, id: fwdGif.id.replace(/^fwd:/, '') });
+      toast({ title: 'Saved to your library', description: gif.title });
+      nav(`/gif/${gif.providerGifId}`);
+      return;
+    }
+
     if (!user) {
       toast({ title: 'Sign in to save', description: 'Sign in to keep AI Scout GIFs in your library.' });
       return;
@@ -317,10 +361,8 @@ const SearchPage: React.FC = () => {
               </div>
             )}
 
-            {!hasMore && results.length > 0 && (
-              <p className="text-center text-xs text-zinc-600 py-6 tracking-wider uppercase">
-                You've seen it all
-              </p>
+            {hasMore && !loadingMore && (
+              <div className="h-8" aria-hidden="true" />
             )}
           </>
         ) : (

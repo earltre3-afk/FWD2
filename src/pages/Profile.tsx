@@ -374,7 +374,23 @@ const Profile: React.FC = () => {
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
                 {savedGifs.map(g => (
                   <div key={g.id} className="relative">
-                    <GifCard gif={g} />
+                    <GifCard
+                      gif={g}
+                      onClick={() => {
+                        if (g.id.startsWith('saved:')) {
+                          nav('/create', {
+                            state: {
+                              image: g.image,
+                              mediaType: /\.(mp4|webm)(?:[?#].*)?$/i.test(g.image) ? 'video/mp4' : 'image/gif',
+                              title: g.title,
+                              tags: g.tags,
+                            },
+                          });
+                        } else {
+                          nav(`/gif/${g.id}`);
+                        }
+                      }}
+                    />
                     <button onClick={() => removeSavedGif(g.id)}
                       className="absolute bottom-2 right-2 z-10 rounded-lg bg-black/70 border border-white/10 px-2 py-1 text-[10px] font-bold text-zinc-200">
                       Remove

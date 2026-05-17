@@ -1,6 +1,8 @@
 const CATEGORIES = ['Black Culture', 'Reactions', 'Clips', 'Memes', 'Music', 'TV & Movies', 'Sports', 'Gaming', 'New'];
 const MOODS = ['Cool', 'Lit', 'LOL', 'Wow', 'Hype', 'Side Eye', 'Facts', 'Period'];
 const MAX_TEXT = 240;
+const AI_MODEL = process.env.VERCEL_AI_MODEL || process.env.AI_GATEWAY_MODEL || 'openai/gpt-5.4';
+const AI_GATEWAY_URL = 'https://ai-gateway.vercel.sh/v1/chat/completions';
 
 function json(res, status, body) {
   res.statusCode = status;
@@ -43,11 +45,12 @@ function sanitizeResult(value, fallback) {
   const category = CATEGORIES.includes(value?.category) ? value.category : fallback.category;
   const mood = MOODS.includes(value?.mood) ? value.mood : fallback.mood;
   const tags = cleanTags(value?.tags?.length ? value.tags : fallback.tags);
+  const fallbackTags = cleanTags(fallback.tags);
   const title = cleanText(value?.title || fallback.title || 'My FWD', 60);
   const caption = cleanText(value?.caption || fallback.caption || '', 160);
   const confidence = Math.max(0, Math.min(1, Number(value?.confidence || fallback.confidence || 0.45)));
   const reason = cleanText(value?.reason || fallback.reason || 'Categorized from GIF metadata.', 140);
-  return { title, category, mood, tags, caption, confidence, reason };
+  return { title, category, mood, tags: tags.length ? tags : fallbackTags, caption, confidence, reason };
 }
 
 function heuristicCategorize(input) {
@@ -97,71 +100,83 @@ function heuristicCategorize(input) {
   };
 }
 
-async function openAiCategorize(input, fallback) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return fallback;
+function gatewayToken(req) {
+  return process.env.AI_GATEWAY_API_KEY ||
+    process.env.VERCEL_AI_API_KEY ||
+    process.env.VERCEL_OIDC_TOKEN ||
+    req.headers['x-vercel-oidc-token'] ||
+    req.headers['X-Vercel-Oidc-Token'];
+}
 
-  const sourceUrl = safeUrl(input.sourceUrl || input.thumbnailUrl);
-  const content = [
-    {
-      type: 'input_text',
-      text: [
-        'Categorize this GIF/FWD for a social reaction app.',
-        'Return concise, culturally aware metadata. Prefer the best category and reaction mood over generic labels.',
-        `Allowed categories: ${CATEGORIES.join(', ')}`,
-        `Allowed moods: ${MOODS.join(', ')}`,
-        `Existing title: ${cleanText(input.title, 80) || '(none)'}`,
-        `Caption: ${cleanText(input.caption, 160) || '(none)'}`,
-        `Existing tags: ${cleanTags(input.tags).join(', ') || '(none)'}`,
-      ].join('\n'),
-    },
-  ];
-  if (sourceUrl) content.push({ type: 'input_image', image_url: sourceUrl });
-
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: process.env.OPENAI_CATEGORIZER_MODEL || 'gpt-4o-mini',
-      input: [{ role: 'user', content }],
-      text: {
-        format: {
-          type: 'json_schema',
-          name: 'gif_categorization',
-          strict: true,
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              title: { type: 'string' },
-              category: { type: 'string', enum: CATEGORIES },
-              mood: { type: 'string', enum: MOODS },
-              tags: { type: 'array', items: { type: 'string' }, minItems: 4, maxItems: 10 },
-              caption: { type: 'string' },
-              confidence: { type: 'number', minimum: 0, maximum: 1 },
-              reason: { type: 'string' },
-            },
-            required: ['title', 'category', 'mood', 'tags', 'caption', 'confidence', 'reason'],
-          },
-        },
-      },
-    }),
+function logAiUnavailable(reason, extra = {}) {
+  console.warn('Vercel AI categorize unavailable', {
+    reason,
+    hasGatewayKey: Boolean(process.env.AI_GATEWAY_API_KEY),
+    hasLegacyKey: Boolean(process.env.VERCEL_AI_API_KEY),
+    hasOidc: Boolean(process.env.VERCEL_OIDC_TOKEN),
+    model: AI_MODEL,
+    ...extra,
   });
+}
 
-  if (!response.ok) return fallback;
-  const payload = await response.json();
-  const text = payload.output_text || payload.output?.flatMap((item) => item.content || [])
-    .find((item) => item.type === 'output_text')?.text;
-  if (!text) return fallback;
-
+function parseJsonObject(text) {
   try {
     return JSON.parse(text);
   } catch {
-    return fallback;
+    const match = String(text || '').match(/\{[\s\S]*\}/);
+    return match ? JSON.parse(match[0]) : null;
   }
+}
+
+async function vercelAiCategorize(req, input, fallback) {
+  const token = gatewayToken(req);
+  if (!token) {
+    logAiUnavailable('missing_token');
+    return { metadata: fallback, aiUsed: false };
+  }
+
+  const sourceUrl = safeUrl(input.sourceUrl || input.thumbnailUrl);
+  const response = await fetch(AI_GATEWAY_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: AI_MODEL,
+      temperature: 0.2,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You categorize GIFs/FWDs for a social reaction app.',
+            'Return only JSON. No markdown.',
+            `Schema: {"title":string,"category":one of [${CATEGORIES.join(', ')}],"mood":one of [${MOODS.join(', ')}],"tags":string[4..10],"caption":string,"confidence":number 0..1,"reason":string}`,
+          ].join(' '),
+        },
+        {
+          role: 'user',
+          content: [
+            `Existing title: ${cleanText(input.title, 80) || '(none)'}`,
+            `Caption: ${cleanText(input.caption, 160) || '(none)'}`,
+            `Existing tags: ${cleanTags(input.tags).join(', ') || '(none)'}`,
+            `Source URL: ${sourceUrl || '(none)'}`,
+          ].join('\n'),
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    logAiUnavailable('gateway_response_not_ok', { status: response.status, bodyStart: errorText.slice(0, 180) });
+    return { metadata: fallback, aiUsed: false };
+  }
+  const payload = await response.json();
+  const content = payload.choices?.[0]?.message?.content;
+  const parsed = parseJsonObject(content);
+  if (!parsed) logAiUnavailable('parse_failed', { bodyStart: JSON.stringify(payload).slice(0, 180) });
+  return { metadata: parsed || fallback, aiUsed: Boolean(parsed) };
 }
 
 export default async function handler(req, res) {
@@ -180,8 +195,13 @@ export default async function handler(req, res) {
     };
 
     const fallback = heuristicCategorize(input);
-    const ai = await openAiCategorize(input, fallback);
-    return json(res, 200, { ok: true, metadata: sanitizeResult(ai, fallback), aiUsed: Boolean(process.env.OPENAI_API_KEY) });
+    try {
+      const ai = await vercelAiCategorize(req, input, fallback);
+      return json(res, 200, { ok: true, metadata: sanitizeResult(ai.metadata, fallback), aiUsed: ai.aiUsed, model: AI_MODEL });
+    } catch (error) {
+      logAiUnavailable('exception', { message: error?.message || String(error) });
+      return json(res, 200, { ok: true, metadata: sanitizeResult(fallback, fallback), aiUsed: false, model: AI_MODEL });
+    }
   } catch {
     return json(res, 200, {
       ok: true,
