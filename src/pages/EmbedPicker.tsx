@@ -1,7 +1,8 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Search as SearchIcon, X, Sparkles, Minimize2, Maximize2, Loader2 } from 'lucide-react';
 import FwdLogo from '@/components/FwdLogo';
+import FwdAnimatedGif from '@/components/FwdAnimatedGif';
 import { GIFS, CATEGORIES } from '@/data/gifs';
 import { Gif } from '@/contexts/AppContext';
 import { fwdConfig } from '@/lib/supabase';
@@ -153,8 +154,53 @@ const EmbedPicker: React.FC = () => {
   const [loadingMine, setLoadingMine] = useState(false);
   const [mineFetched, setMineFetched] = useState(false);
 
-  const { results: scoutResults, scouting, attribution, sourcesUsed } = useRapidReactionScout(query, 10);
-  const predictive = usePredictiveGifs(liveDraft, context, 10);
+  const {
+    results: scoutResults,
+    scouting,
+    loadingMore,
+    hasMore,
+    loadMore,
+    attribution,
+    sourcesUsed,
+  } = useRapidReactionScout(query, 20);
+  const predictive = usePredictiveGifs(liveDraft, context, 20);
+
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  // IntersectionObserver — fires loadMore when sentinel scrolls into view inside the picker container
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const container = scrollContainerRef.current;
+    if (!sentinel || !container) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !loadingMore && hasMore) {
+          loadMore();
+        }
+      },
+      {
+        root: container,
+        rootMargin: '400px 0px',
+      },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, loadMore, loadingMore, results.length]);
+
+  // If container height is too small (e.g. initial load doesn't trigger scrollbars), load more automatically
+  useEffect(() => {
+    if (loadingMore || !hasMore || results.length === 0) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    if (container.scrollHeight <= container.clientHeight + 100) {
+      const timer = window.setTimeout(() => loadMore(), 100);
+      return () => window.clearTimeout(timer);
+    }
+  }, [hasMore, loadMore, loadingMore, results.length]);
 
   // Receive live draft updates from TreyTV as the user types
   useEffect(() => {
@@ -244,7 +290,7 @@ const EmbedPicker: React.FC = () => {
     if (!query.trim()) {
       let r = GIFS;
       if (cat !== 'Trending') r = r.filter(g => g.category === cat);
-      return r.slice(0, 10).map(g => ({
+      return r.map(g => ({
         id: `fwd:${g.id}`,
         source: 'fwd' as const,
         sourceId: g.id,
@@ -381,7 +427,7 @@ const EmbedPicker: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-4">
+        <div className="flex-1 overflow-y-auto px-4 pb-4" ref={scrollContainerRef}>
           <h3 className="text-xs uppercase tracking-wider font-bold text-zinc-400 mb-2">
             {headerLabel}
           </h3>
@@ -406,31 +452,40 @@ const EmbedPicker: React.FC = () => {
           ) : results.length === 0 ? (
             <div className="text-center py-10 text-zinc-500 text-sm">Loading reactions...</div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {results.map(asset => (
-                <button
-                  key={asset.id}
-                  onClick={() => handleSelect(asset)}
-                  className="relative rounded-xl overflow-hidden border border-fuchsia-500/20 hover:border-fuchsia-500/70 hover:scale-[1.02] transition group"
-                >
-                  <img
-                    src={asset.previewUrl}
-                    className="w-full aspect-square object-cover"
-                    loading="lazy"
-                    alt={`${asset.title} reaction`}
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-                  <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/60 text-[9px] font-bold text-white">
-                    {asset.source === 'giphy' || asset.source === 'tenor'
-                      ? asset.source.toUpperCase()
-                      : 'GIF'}
-                  </span>
-                  <span className="absolute bottom-1.5 left-1.5 text-[10px] font-bold text-white truncate max-w-[85%]">
-                    {asset.title}
-                  </span>
-                </button>
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {results.map(asset => (
+                  <button
+                    key={asset.id}
+                    onClick={() => handleSelect(asset)}
+                    className="relative rounded-xl overflow-hidden border border-fuchsia-500/20 hover:border-fuchsia-500/70 hover:scale-[1.02] transition group"
+                  >
+                    <FwdAnimatedGif
+                      gifUrl={asset.gifUrl || asset.previewUrl}
+                      stillUrl={asset.previewUrl}
+                      title={asset.title}
+                      className="w-full aspect-square object-cover"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+                    <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/60 text-[9px] font-bold text-white">
+                      {asset.source === 'giphy' || asset.source === 'tenor'
+                        ? asset.source.toUpperCase()
+                        : 'GIF'}
+                    </span>
+                    <span className="absolute bottom-1.5 left-1.5 text-[10px] font-bold text-white truncate max-w-[85%]">
+                      {asset.title}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Infinite scroll sentinel */}
+              {hasMore && (
+                <div ref={sentinelRef} className="h-10 w-full flex items-center justify-center py-4">
+                  {loadingMore && <Loader2 className="text-fuchsia-400 animate-spin" size={20} />}
+                </div>
+              )}
+            </>
           )}
 
           {((query && scouting) || (!query && liveDraft.trim().length >= 2 && predictive.loading)) && (
