@@ -30,6 +30,7 @@ import TreyTvStart from "./pages/TreyTvStart";
 import PickerKeyManager from "./pages/PickerKeyManager";
 import Feed from "./pages/Feed";
 import PasswordReset from "./pages/PasswordReset";
+import FwdShare from "./pages/FwdShare";
 
 const queryClient = new QueryClient();
 
@@ -68,6 +69,7 @@ const App = () => (
                 <Route path="/picker-api-keys" element={<ProtectedRoute><PickerKeys /></ProtectedRoute>} />
                 <Route path="/integration-status" element={<IntegrationStatus />} />
                 <Route path="/feed" element={<Feed />} />
+                <Route path="/f/:id" element={<FwdShare />} />
                 <Route path="/settings/integrations" element={<ProtectedRoute><PickerKeyManager /></ProtectedRoute>} />
                 <Route path="*" element={<NotFound />} />
 

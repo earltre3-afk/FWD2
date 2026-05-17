@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft, Bell, Scissors, Crop, Type, Smile, Gauge, Aperture, Camera, Play,
   X, ChevronDown, Globe, Lock, ChevronsRight, Loader2, Check, Upload,
-  Share2, Bookmark, RefreshCw, Sparkles,
+  Share2, Bookmark, RefreshCw, Sparkles, RotateCw,
 } from 'lucide-react';
 import FwdLogo from '@/components/FwdLogo';
 import UploadDropzone from '@/components/UploadDropzone';
@@ -36,7 +36,8 @@ const MAX_RECORD_SECONDS = 10;
 
 const getRecorderMimeType = () => {
   if (typeof MediaRecorder === 'undefined') return '';
-  return ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4']
+  // VP8 first — VP9 produces black frames on several Chrome versions
+  return ['video/webm;codecs=vp8', 'video/webm;codecs=vp9', 'video/webm', 'video/mp4']
     .find((type) => MediaRecorder.isTypeSupported(type)) || '';
 };
 
@@ -84,6 +85,7 @@ const CreateGif: React.FC = () => {
   const [aiHint, setAiHint] = useState('');
   const [aiApplied, setAiApplied] = useState(false);
   const [cameraPreviewReady, setCameraPreviewReady] = useState(false);
+  const [facing, setFacing] = useState<'user' | 'environment'>('user');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
@@ -118,6 +120,12 @@ const CreateGif: React.FC = () => {
     stopTimerRef.current = null;
   }, []);
 
+  // Auto-start camera when page loads with no incoming media
+  useEffect(() => {
+    if (!initialImage) startCamera('user');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => () => {
     stopCamera();
     if (previewUrl?.startsWith('blob:')) URL.revokeObjectURL(previewUrl);
@@ -137,7 +145,7 @@ const CreateGif: React.FC = () => {
     return () => window.clearInterval(interval);
   }, [creationState]);
 
-  const startCamera = async () => {
+  const startCamera = async (nextFacing: 'user' | 'environment' = facing) => {
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
       setCreationState('error');
       setErrorMsg('This browser cannot record video here. Upload a clip instead.');
@@ -147,10 +155,11 @@ const CreateGif: React.FC = () => {
       stopCamera();
       setCameraPreviewReady(false);
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'user' } },
+        video: { facingMode: { ideal: nextFacing } },
         audio: false,
       });
       streamRef.current = stream;
+      setFacing(nextFacing);
       setCreationState('camera_ready');
       window.requestAnimationFrame(attachCameraStream);
       setErrorMsg('');
@@ -158,6 +167,11 @@ const CreateGif: React.FC = () => {
       setCreationState('error');
       setErrorMsg('Camera access is off. Enable it or upload a clip from your device.');
     }
+  };
+
+  const flipCamera = () => {
+    if (creationState === 'recording') return;
+    startCamera(facing === 'user' ? 'environment' : 'user');
   };
 
   const stopRecording = useCallback(() => {
@@ -177,24 +191,36 @@ const CreateGif: React.FC = () => {
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) chunksRef.current.push(event.data);
       };
+      recorder.onerror = () => {
+        stopCamera();
+        setCreationState('error');
+        setErrorMsg('Recording failed. Try again or upload a clip.');
+      };
       recorder.onstop = () => {
-        setCreationState('processing');
+        // Stop camera tracks first so the stream is released
+        stopCamera();
+
         const type = mimeType || chunksRef.current[0]?.type || 'video/webm';
         const blob = new Blob(chunksRef.current, { type });
+
+        if (blob.size === 0) {
+          setCreationState('error');
+          setErrorMsg('Recording captured no data. Tap Try Again and record for at least 1 second.');
+          return;
+        }
+
         const file = new File([blob], `recorded-fwd-${Date.now()}.webm`, { type });
         const url = URL.createObjectURL(blob);
-        stopCamera();
-        if (previewUrl?.startsWith('blob:')) URL.revokeObjectURL(previewUrl);
-        setPreviewUrl(url);
         setUploadedFile(file);
         setMediaType(type);
         setUploadedFromVault(true);
-        setTrim({ start: 0, end: Math.min(MAX_RECORD_SECONDS, Math.max(1, recordSeconds || MAX_RECORD_SECONDS)) });
+        setTrim({ start: 0, end: MAX_RECORD_SECONDS });
         if (!title.trim()) setTitle('My FWD');
+        setPreviewUrl(url);
         setCreationState('preview');
       };
       setRecordSeconds(0);
-      recorder.start();
+      recorder.start(100); // collect a chunk every 100ms — prevents empty blobs on stop
       setCreationState('recording');
       stopTimerRef.current = window.setTimeout(stopRecording, MAX_RECORD_SECONDS * 1000);
     } catch {
@@ -296,7 +322,7 @@ const CreateGif: React.FC = () => {
     }
   })();
 
-  const isVideo = mediaType?.startsWith('video/') || previewUrl.includes('.webm') || previewUrl.includes('.mp4');
+  const isVideo = mediaType?.startsWith('video/') || uploadedFile?.type?.startsWith('video/');
 
   const create = async () => {
     if (!previewUrl) {
@@ -316,16 +342,29 @@ const CreateGif: React.FC = () => {
     let gifUrl = previewUrl;
 
     try {
+      // If we came from the camera page via router state, uploadedFile is null
+      // but previewUrl is a local blob URL — fetch it to get the File object.
+      let effectiveFile = uploadedFile;
+      if (!effectiveFile && isVideo && previewUrl?.startsWith('blob:')) {
+        setProgress(2);
+        const resp = await fetch(previewUrl);
+        if (!resp.ok) throw new Error('Could not load your recording. Try again.');
+        const blob = await resp.blob();
+        const type = mediaType || blob.type || 'video/webm';
+        const ext = type.includes('mp4') ? 'mp4' : 'webm';
+        effectiveFile = new File([blob], `clip-${Date.now()}.${ext}`, { type });
+      }
+
       // Decide encoding path
-      if (uploadedFile) {
-        if (uploadedFile.type === 'image/gif') {
+      if (effectiveFile) {
+        if (effectiveFile.type === 'image/gif') {
           // Already a GIF — upload directly
-          gifBlob = uploadedFile;
-        } else if (uploadedFile.type.startsWith('video/')) {
+          gifBlob = effectiveFile;
+        } else if (effectiveFile.type.startsWith('video/')) {
           // Video → encode to GIF
           setProgress(5);
           const { videoFileToGif } = await import('@/lib/gifEncoder');
-          gifBlob = await videoFileToGif(uploadedFile, {
+          gifBlob = await videoFileToGif(effectiveFile, {
             width: 360,
             height: 360,
             fps: 10,
@@ -333,10 +372,10 @@ const CreateGif: React.FC = () => {
             endSec: Math.min(trim.end, trim.start + MAX_RECORD_SECONDS),
             onProgress: (pct) => setProgress(5 + Math.round(pct * 0.7)),
           });
-        } else if (uploadedFile.type.startsWith('image/')) {
+        } else if (effectiveFile.type.startsWith('image/')) {
           // Static image → single-frame GIF
           const { imageFileToGif } = await import('@/lib/gifEncoder');
-          gifBlob = await imageFileToGif(uploadedFile, { width: 320, height: 320 });
+          gifBlob = await imageFileToGif(effectiveFile, { width: 320, height: 320 });
         }
       }
 
@@ -347,12 +386,12 @@ const CreateGif: React.FC = () => {
         const ext = 'gif';
         const path = `${user.id}/${Date.now()}.${ext}`;
         const { data: storageData, error: storageErr } = await supabase.storage
-          .from('fwd-uploads')
+          .from('fwd-gifs')
           .upload(path, gifBlob, { contentType: 'image/gif', upsert: false });
 
         if (storageErr) throw new Error(storageErr.message);
 
-        const { data: publicUrlData } = supabase.storage.from('fwd-uploads').getPublicUrl(storageData.path);
+        const { data: publicUrlData } = supabase.storage.from('fwd-gifs').getPublicUrl(storageData.path);
         gifUrl = publicUrlData.publicUrl;
         setPreviewUrl(gifUrl);
         setProgress(90);
@@ -378,7 +417,7 @@ const CreateGif: React.FC = () => {
         isPublic,
         allow_reuse: allowReuse,
         allow_download: allowDownload,
-        source_type: uploadedFile ? (uploadedFile.type === 'image/gif' ? 'uploaded' : 'created') : 'external',
+        source_type: gifBlob ? (uploadedFile?.type === 'image/gif' ? 'uploaded' : 'created') : 'external',
         file_size_bytes: gifBlob?.size,
       });
 
@@ -421,7 +460,7 @@ const CreateGif: React.FC = () => {
             <Check size={28} className="text-fuchsia-400" />
           </div>
           <h2 className="text-2xl font-black text-white mb-1">GIF Created!</h2>
-          <p className="text-zinc-400 text-sm mb-5">"{title}" is ready to forward.</p>
+          <p className="text-zinc-400 text-sm mb-5">"{savedGif?.title || title || 'Your FWD'}" is ready to forward.</p>
 
           {savedGif && (
             <div className="rounded-2xl overflow-hidden border border-fuchsia-500/30 aspect-square max-w-[220px] mx-auto mb-6">
@@ -484,60 +523,118 @@ const CreateGif: React.FC = () => {
         </div>
 
         {!previewUrl && (
-          <div className="glass-strong rounded-3xl border border-fuchsia-500/30 neon-glow-purple overflow-hidden mb-5">
-            <div className="relative aspect-[9/14] sm:aspect-video bg-black/70 flex items-center justify-center">
-              {(creationState === 'camera_ready' || creationState === 'recording') ? (
-                <video
-                  ref={cameraVideoRef}
-                  autoPlay
-                  muted
-                  playsInline
-                  onCanPlay={() => {
-                    setCameraPreviewReady(true);
-                    attachCameraStream();
-                  }}
-                  onPlaying={() => setCameraPreviewReady(true)}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="text-center px-6">
-                  <div className="w-16 h-16 mx-auto rounded-full bg-fuchsia-500/10 border border-fuchsia-500/30 flex items-center justify-center mb-4">
-                    <Camera size={28} className="text-fuchsia-300" />
-                  </div>
-                  <h2 className="text-2xl font-black text-white">Record a FWD</h2>
-                  <p className="text-zinc-400 text-sm mt-2">10 seconds max. Turn this into a GIF.</p>
+          <div className="relative rounded-3xl overflow-hidden mb-5 bg-black aspect-[9/16] sm:aspect-video">
+            {/* Live video — only mounted when camera is active so ref is valid on attach */}
+            {(creationState === 'camera_ready' || creationState === 'recording') && (
+              <video
+                ref={cameraVideoRef}
+                autoPlay
+                muted
+                playsInline
+                onCanPlay={() => { setCameraPreviewReady(true); attachCameraStream(); }}
+                onPlaying={() => setCameraPreviewReady(true)}
+                className={`absolute inset-0 w-full h-full object-cover ${facing === 'user' ? 'scale-x-[-1]' : ''}`}
+              />
+            )}
+
+            {/* gradient overlay */}
+            <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-black/70 pointer-events-none" />
+
+            {/* corner brackets */}
+            <div className="absolute top-4 left-4 w-10 h-10 border-l-2 border-t-2 border-fuchsia-500 rounded-tl-2xl pointer-events-none" />
+            <div className="absolute top-4 right-4 w-10 h-10 border-r-2 border-t-2 border-fuchsia-500 rounded-tr-2xl pointer-events-none" />
+            <div className="absolute bottom-28 left-4 w-10 h-10 border-l-2 border-b-2 border-fuchsia-500 rounded-bl-2xl pointer-events-none" />
+            <div className="absolute bottom-28 right-4 w-10 h-10 border-r-2 border-b-2 border-fuchsia-500 rounded-br-2xl pointer-events-none" />
+
+            {/* Loading spinner */}
+            {!cameraPreviewReady && (creationState === 'camera_ready' || creationState === 'recording') && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/70 z-10">
+                <Loader2 size={32} className="animate-spin text-fuchsia-400" />
+              </div>
+            )}
+
+            {/* Idle / error placeholder */}
+            {(creationState === 'idle' || creationState === 'error') && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center z-10 px-6 text-center">
+                <div className="w-16 h-16 rounded-full bg-fuchsia-500/10 border border-fuchsia-500/30 flex items-center justify-center mb-4">
+                  <Camera size={28} className="text-fuchsia-300" />
                 </div>
-              )}
-              {(creationState === 'camera_ready' || creationState === 'recording') && !cameraPreviewReady && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-sm font-semibold text-zinc-200">
-                  Starting camera...
-                </div>
-              )}
-              {creationState === 'recording' && (
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 glass-strong rounded-full px-4 py-1.5 border border-red-400/40 flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
-                  <span className="text-white font-mono text-sm">00:{String(recordSeconds).padStart(2, '0')}</span>
-                  <span className="text-zinc-500 text-xs">/ 00:10</span>
-                </div>
-              )}
-            </div>
-            <div className="p-4 grid grid-cols-2 gap-3">
-              {creationState === 'camera_ready' ? (
-                <button onClick={startRecording} className="col-span-2 py-4 rounded-2xl bg-gradient-to-r from-fuchsia-600 via-pink-500 to-cyan-500 text-white font-black neon-glow-purple">
-                  Tap to record
+                {creationState === 'error'
+                  ? <p className="text-zinc-400 text-sm mb-4">{errorMsg}</p>
+                  : <p className="text-zinc-400 text-sm mb-4">Starting camera…</p>
+                }
+                <button onClick={() => startCamera(facing)} className="px-5 py-2.5 rounded-xl bg-fuchsia-600 text-white font-bold text-sm">
+                  {creationState === 'error' ? 'Try Again' : 'Enable Camera'}
                 </button>
-              ) : creationState === 'recording' ? (
-                <button onClick={stopRecording} className="col-span-2 py-4 rounded-2xl bg-red-500 text-white font-black neon-glow-pink">
-                  Stop recording
-                </button>
-              ) : (
-                <button onClick={startCamera} className="col-span-2 py-4 rounded-2xl bg-gradient-to-r from-fuchsia-600 via-pink-500 to-cyan-500 text-white font-black neon-glow-purple">
-                  Turn this into a GIF
-                </button>
-              )}
-              <button onClick={() => fileInputRef.current?.click()} className="col-span-2 glass rounded-xl py-3 border border-white/10 text-white font-semibold">
-                Upload instead
+              </div>
+            )}
+
+            {/* Front / Back toggle */}
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex gap-2">
+              <button onClick={() => facing !== 'user' && flipCamera()}
+                className={`px-3 py-1 rounded-full text-xs font-semibold border ${facing === 'user' ? 'bg-fuchsia-500/30 border-fuchsia-500 text-white' : 'glass border-white/15 text-zinc-300'}`}>
+                Front
               </button>
+              <button onClick={() => facing !== 'environment' && flipCamera()}
+                className={`px-3 py-1 rounded-full text-xs font-semibold border ${facing === 'environment' ? 'bg-fuchsia-500/30 border-fuchsia-500 text-white' : 'glass border-white/15 text-zinc-300'}`}>
+                Back
+              </button>
+            </div>
+
+            {/* Flip — top right */}
+            <button onClick={flipCamera} disabled={creationState === 'recording'}
+              className="absolute top-14 right-4 z-20 flex flex-col items-center gap-1 disabled:opacity-40">
+              <div className="w-11 h-11 rounded-full glass-strong border border-fuchsia-500/40 flex items-center justify-center">
+                <RotateCw size={18} className="text-fuchsia-300" />
+              </div>
+              <span className="text-[10px] text-zinc-300 font-semibold">Flip</span>
+            </button>
+
+            {/* Upload — top left */}
+            <button onClick={() => fileInputRef.current?.click()}
+              className="absolute top-14 left-4 z-20 flex flex-col items-center gap-1">
+              <div className="w-11 h-11 rounded-full glass-strong border border-white/15 flex items-center justify-center">
+                <Upload size={18} className="text-zinc-300" />
+              </div>
+              <span className="text-[10px] text-zinc-300 font-semibold">Upload</span>
+            </button>
+
+            {/* Timer */}
+            <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20">
+              <div className="glass-strong rounded-full px-4 py-1.5 border border-white/15 flex items-center gap-2">
+                <span className={`w-2.5 h-2.5 rounded-full ${creationState === 'recording' ? 'bg-red-500 animate-pulse' : 'bg-zinc-500'}`} />
+                <span className="text-white font-mono text-sm">00:{String(recordSeconds).padStart(2, '0')}</span>
+                <span className="text-zinc-500 text-xs">/ 00:{String(MAX_RECORD_SECONDS).padStart(2, '0')}</span>
+              </div>
+            </div>
+
+            {/* Label */}
+            <div className="absolute inset-x-0 bottom-28 text-center z-20 pointer-events-none">
+              <h2 className="text-2xl font-black text-white drop-shadow-lg">
+                {creationState === 'recording' ? 'Capturing the vibe' : 'Record a reaction'}
+              </h2>
+              <p className="text-zinc-300 text-sm mt-0.5 drop-shadow">
+                {creationState === 'recording' ? 'Up to 10 seconds.' : 'Capture the vibe.'}
+              </p>
+            </div>
+
+            {/* Bottom controls */}
+            <div className="absolute bottom-0 inset-x-0 z-20 p-5">
+              <div className="flex items-end justify-between max-w-xs mx-auto">
+                <div className="w-14 h-14" />
+                {creationState === 'recording' ? (
+                  <button onClick={stopRecording}
+                    className="w-20 h-20 rounded-full border-4 border-fuchsia-500 flex items-center justify-center animate-pulse-glow">
+                    <div className="w-8 h-8 bg-red-500 rounded-md neon-glow-pink" />
+                  </button>
+                ) : (
+                  <button onClick={startRecording} disabled={creationState !== 'camera_ready'}
+                    className="w-20 h-20 rounded-full border-4 border-fuchsia-500 flex items-center justify-center animate-pulse-glow disabled:opacity-40">
+                    <div className="w-14 h-14 bg-pink-500 rounded-full neon-glow-pink" />
+                  </button>
+                )}
+                <div className="w-14 h-14" />
+              </div>
             </div>
           </div>
         )}
@@ -545,34 +642,21 @@ const CreateGif: React.FC = () => {
         {/* Upload zone */}
         {previewUrl && <UploadDropzone onUploaded={handleUploaded} currentPreview={!uploadedFromVault ? previewUrl : undefined} />}
 
-        {/* Or: direct file pick */}
-        <div className="flex gap-2 mb-4">
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="flex-1 glass-strong rounded-xl py-2.5 px-3 border border-fuchsia-500/30 flex items-center justify-center gap-2 text-sm font-semibold text-white"
-          >
-            <Upload size={16} className="text-fuchsia-400" /> Choose file
-          </button>
-          <button
-            onClick={() => nav('/camera')}
-            className="flex-1 glass-strong rounded-xl py-2.5 px-3 border border-cyan-500/30 flex items-center justify-center gap-2 text-sm font-semibold text-white"
-          >
-            <Camera size={16} className="text-cyan-400" /> Record
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/gif,image/*,video/*"
-            className="hidden"
-            onChange={handleDirectFile}
-          />
-        </div>
+        {/* Hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/gif,image/*,video/*"
+          className="hidden"
+          onChange={handleDirectFile}
+        />
 
         {/* Preview */}
         {previewUrl && (
         <div className="relative rounded-2xl overflow-hidden border border-fuchsia-500/40 neon-glow-purple aspect-square sm:aspect-video lg:aspect-square max-w-lg mx-auto mb-3">
           {isVideo ? (
             <video
+              key={previewUrl}
               src={previewUrl}
               muted autoPlay loop playsInline
               className={`w-full h-full object-contain bg-black/80 ${filterStyle}`}

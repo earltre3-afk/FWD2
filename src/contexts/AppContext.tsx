@@ -59,6 +59,7 @@ interface AppContextType {
   addToCollection: (collectionId: string, gifId: string) => Promise<void>;
   userGifs: Gif[];
   createUserGif: (gif: CreateGifPayload) => Promise<Gif | null>;
+  deleteUserGif: (gifId: string) => Promise<boolean>;
   refresh: () => Promise<void>;
   recordGifUse: (gifId: string, platform?: string, context?: string) => Promise<void>;
   // Feed
@@ -97,6 +98,8 @@ const defaultGuestCollections: Collection[] = [
 ];
 
 const FEED_PAGE_SIZE = 20;
+const normalizeUsername = (value: string) =>
+  value.toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const AppContext = createContext<AppContextType>({} as any);
@@ -137,6 +140,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     visibility: g.visibility || 'public',
   });
 
+  const ensureProfile = useCallback(async () => {
+    if (!user) return false;
+    const metadata = user.user_metadata || {};
+    const emailName = user.email?.split('@')[0] || '';
+    const displayName = metadata.display_name || metadata.full_name || emailName || 'FWD User';
+    const username = normalizeUsername(metadata.username || displayName || emailName) || `fwd_${user.id.slice(0, 8)}`;
+
+    const { error } = await supabase.from('profiles').upsert(
+      {
+        id: user.id,
+        username,
+        display_name: displayName,
+        avatar_url: metadata.avatar_url || metadata.picture || null,
+        is_public: true,
+      },
+      { onConflict: 'id' }
+    );
+
+    return !error;
+  }, [user]);
+
   const loadAll = useCallback(async () => {
     if (!user) {
       try {
@@ -150,8 +174,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const [favRes, colRes, gifRes] = await Promise.all([
-      supabase.from('favorites').select('gif_id').eq('user_id', user.id),
-      supabase.from('collections').select('*').eq('user_id', user.id).order('created_at', { ascending: true }),
+      supabase.from('fwd_favorites').select('gif_id').eq('user_id', user.id),
+      supabase.from('fwd_collections').select('*').eq('user_id', user.id).order('created_at', { ascending: true }),
       supabase.from('fwd_gifs').select('*').eq('owner_user_id', user.id).order('created_at', { ascending: false }),
     ]);
 
@@ -163,7 +187,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setCollections(
       (colRes.data || []).map((c: any) => ({
-        id: c.id, name: c.name, gifIds: c.gif_ids || [], isPrivate: c.is_private,
+        id: c.id, name: c.name, gifIds: c.gif_ids || [], isPrivate: c.visibility === 'private',
       }))
     );
 
@@ -199,10 +223,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     if (!user) return;
     if (has) {
-      await supabase.from('favorites').delete().eq('user_id', user.id).eq('gif_id', id);
+      await supabase.from('fwd_favorites').delete().eq('user_id', user.id).eq('gif_id', id);
       removeGif(id, 'fwd');
     } else {
-      await supabase.from('favorites').insert({ user_id: user.id, gif_id: id });
+      await supabase.from('fwd_favorites').insert({ user_id: user.id, gif_id: id });
       saveGif(id, 'fwd');
     }
   }, [favorites, user, saveGif, removeGif]);
@@ -211,7 +235,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setFavorites(prev => prev.filter(x => x !== id));
     setSavedLibrary(prev => prev.filter(g => g.id !== id));
     if (user) {
-      await supabase.from('favorites').delete().eq('user_id', user.id).eq('gif_id', id);
+      await supabase.from('fwd_favorites').delete().eq('user_id', user.id).eq('gif_id', id);
       removeGif(id, 'fwd');
     }
   }, [user, removeGif]);
@@ -228,10 +252,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setCollections(prev => [...prev, { id: 'c' + Date.now(), name, gifIds: [], isPrivate }]);
       return;
     }
-    const { data } = await supabase.from('collections').insert({
-      user_id: user.id, name, is_private: isPrivate,
+    const { data } = await supabase.from('fwd_collections').insert({
+      user_id: user.id, name, visibility: isPrivate ? 'private' : 'public',
     }).select().single();
-    if (data) setCollections(prev => [...prev, { id: data.id, name: data.name, gifIds: data.gif_ids || [], isPrivate: data.is_private }]);
+    if (data) setCollections(prev => [...prev, { id: data.id, name: data.name, gifIds: [], isPrivate: data.visibility === 'private' }]);
   }, [user]);
 
   const addToCollection = useCallback(async (collectionId: string, gifId: string) => {
@@ -240,24 +264,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newIds = [...col.gifIds, gifId];
     setCollections(prev => prev.map(c => c.id === collectionId ? { ...c, gifIds: newIds } : c));
     if (user) {
-      await supabase.from('collections').update({ gif_ids: newIds }).eq('id', collectionId);
+      await supabase.from('fwd_collection_items').upsert({ collection_id: collectionId, gif_id: gifId });
     }
   }, [collections, user]);
 
   const createUserGif = useCallback(async (payload: CreateGifPayload): Promise<Gif | null> => {
     if (!user) return null;
-    const fullPayload = {
+    const insertPayload = {
       owner_user_id: user.id,
       title: payload.title,
       caption: payload.caption ?? null,
       gif_url: payload.image,
-      media_url: payload.image,
       still_url: payload.still_url ?? null,
-      preview_url: payload.still_url ?? payload.image,
       thumbnail_url: payload.still_url ?? payload.image,
       tags: payload.tags,
       category: payload.category,
-      mood: payload.mood ?? null,
       visibility: payload.isPublic === false ? 'private' : 'public',
       allow_reuse: payload.allow_reuse ?? true,
       allow_download: payload.allow_download ?? true,
@@ -268,24 +289,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       duration_ms: payload.duration_ms ?? null,
     };
 
-    let { data, error } = await supabase.from('fwd_gifs').insert(fullPayload).select().single();
-
-    if (error) {
-      const legacyPayload = {
-        owner_user_id: user.id,
-        title: payload.title,
-        media_url: payload.image,
-        preview_url: payload.still_url ?? payload.image,
-        thumbnail_url: payload.still_url ?? payload.image,
-        tags: payload.tags,
-        category: payload.category,
-        visibility: payload.isPublic === false ? 'private' : 'public',
-        status: 'approved',
-      };
-      const legacyResult = await supabase.from('fwd_gifs').insert(legacyPayload).select().single();
-      data = legacyResult.data;
-      error = legacyResult.error;
-    }
+    const { data, error } = await supabase.from('fwd_gifs').insert(insertPayload).select().single();
 
     if (error || !data) return null;
 
@@ -294,13 +298,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSavedLibrary(prev => [newGif, ...prev.filter(g => g.id !== newGif.id)]);
     setFavorites(prev => prev.includes(data.id) ? prev : [...prev, data.id]);
     // Auto-favorite newly created GIF
-    await supabase.from('favorites').upsert(
+    await supabase.from('fwd_favorites').upsert(
       { user_id: user.id, gif_id: data.id },
       { onConflict: 'user_id,gif_id' }
     );
     markCreated(data.id, 'fwd');
     return newGif;
   }, [user, markCreated]);
+
+  const deleteUserGif = useCallback(async (gifId: string): Promise<boolean> => {
+    if (!user) return false;
+    const gif = userGifs.find(g => g.id === gifId);
+    // Optimistic removal
+    setUserGifs(prev => prev.filter(g => g.id !== gifId));
+    setSavedLibrary(prev => prev.filter(g => g.id !== gifId));
+    setFavorites(prev => prev.filter(id => id !== gifId));
+
+    const { error } = await supabase
+      .from('fwd_gifs')
+      .delete()
+      .eq('id', gifId)
+      .eq('owner_user_id', user.id);
+
+    if (error) {
+      // Roll back on failure
+      if (gif) {
+        setUserGifs(prev => [gif, ...prev]);
+        setSavedLibrary(prev => [gif, ...prev]);
+      }
+      return false;
+    }
+
+    // Best-effort storage cleanup
+    if (gif?.image) {
+      try {
+        const url = new URL(gif.image);
+        const prefix = '/storage/v1/object/public/fwd-gifs/';
+        if (url.pathname.startsWith(prefix)) {
+          await supabase.storage.from('fwd-gifs').remove([url.pathname.slice(prefix.length)]);
+        }
+      } catch { /* non-fatal */ }
+    }
+
+    return true;
+  }, [user, userGifs]);
 
   const recordGifUse = useCallback(
     (gifId: string, platform = 'fwd', context?: string) => recordUse(gifId, platform, context),
@@ -315,7 +356,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       .select(`
         *,
         gif:gif_id ( id, gif_url, still_url, title, allow_reuse, allow_download, owner_user_id ),
-        profile:user_id ( display_name, username, avatar_url )
+        profile:fwd_feed_posts_user_profiles_fk ( display_name, username, avatar_url )
       `)
       .eq('visibility', 'public')
       .order('created_at', { ascending: false })
@@ -375,6 +416,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const createPost = useCallback(async (gifId: string, caption: string): Promise<FwdPost | null> => {
     if (!user) return null;
+    const profileReady = await ensureProfile();
+    if (!profileReady) return null;
+
     const { data, error } = await supabase.from('fwd_feed_posts').insert({
       user_id: user.id,
       gif_id: gifId,
@@ -383,7 +427,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }).select(`
       *,
       gif:gif_id ( id, gif_url, still_url, title, allow_reuse, allow_download, owner_user_id ),
-      profile:user_id ( display_name, username, avatar_url )
+      profile:fwd_feed_posts_user_profiles_fk ( display_name, username, avatar_url )
     `).single();
 
     if (error || !data) return null;
@@ -407,7 +451,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setFeedPosts(prev => [post, ...prev]);
     return post;
-  }, [user]);
+  }, [ensureProfile, user]);
 
   const deletePost = useCallback(async (postId: string) => {
     await supabase.from('fwd_feed_posts').delete().eq('id', postId);
@@ -459,7 +503,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       favorites, toggleFavorite, isFavorite, savedLibrary, removeSavedGif,
       recentSearches, addRecentSearch, clearRecentSearches,
       collections, createCollection, addToCollection,
-      userGifs, createUserGif, refresh: loadAll,
+      userGifs, createUserGif, deleteUserGif, refresh: loadAll,
       recordGifUse,
       feedPosts, feedLoading, feedHasMore,
       loadMoreFeed, createPost, deletePost,

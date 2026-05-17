@@ -11,14 +11,18 @@ import { useAppContext, FwdPost, Gif } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/components/ui/use-toast';
+import { shareFwd, recordShare } from '@/lib/fwdShare';
 
 // ---- Post composer (pick a GIF from user library) ----
 const PostComposer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const { userGifs, createPost } = useAppContext();
+  const { userGifs, savedLibrary, createPost } = useAppContext();
   const [selected, setSelected] = useState<Gif | null>(null);
   const [caption, setCaption] = useState('');
   const [posting, setPosting] = useState(false);
   const nav = useNavigate();
+  const libraryGifs = [...userGifs, ...savedLibrary].filter(
+    (gif, index, all) => gif.image && all.findIndex(item => item.id === gif.id) === index
+  );
 
   const post = async () => {
     if (!selected) return;
@@ -41,7 +45,7 @@ const PostComposer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         {!selected ? (
           <>
             <p className="text-zinc-400 text-sm mb-3">Pick a GIF from your library</p>
-            {userGifs.length === 0 ? (
+            {libraryGifs.length === 0 ? (
               <div className="text-center py-8">
                 <p className="text-zinc-500 text-sm mb-3">No GIFs yet.</p>
                 <button
@@ -53,7 +57,7 @@ const PostComposer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               </div>
             ) : (
               <div className="grid grid-cols-3 gap-2 max-h-64 overflow-y-auto mb-3">
-                {userGifs.map(g => (
+                {libraryGifs.map(g => (
                   <button
                     key={g.id}
                     onClick={() => setSelected(g)}
@@ -114,15 +118,10 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
   const isOwner = user?.id === post.user_id;
 
   const handleShare = async () => {
-    const url = `${window.location.origin}/feed/${post.id}`;
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: 'Check this GIF on FWD', url });
-      } else {
-        await navigator.clipboard.writeText(url);
-        toast({ title: 'Link copied' });
-      }
-    } catch {}
+    const result = await shareFwd(post.id, { caption: post.caption ?? undefined });
+    if (result === 'copied') toast({ title: 'Link copied to clipboard' });
+    if (result === 'error') toast({ title: 'Could not share', variant: 'destructive' });
+    if (result !== 'cancelled') recordShare(post.id, { sharedBy: user?.id, channel: result });
   };
 
   const handleReuse = async () => {

@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, RefreshCcw, Check, RotateCw, Camera as CameraIcon, Upload, Loader2, AlertTriangle } from 'lucide-react';
 import FwdLogo from '@/components/FwdLogo';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/components/ui/use-toast';
 
@@ -13,7 +12,8 @@ const BUCKET = 'fwd-uploads';
 
 const getSupportedMimeType = () => {
   if (typeof MediaRecorder === 'undefined') return '';
-  const candidates = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
+  // VP8 first — VP9 produces black frames on several Chrome versions
+  const candidates = ['video/webm;codecs=vp8', 'video/webm;codecs=vp9', 'video/webm', 'video/mp4'];
   return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || '';
 };
 
@@ -150,6 +150,11 @@ const CameraCapture: React.FC = () => {
         clearStopTimeout();
         const type = mimeType || chunksRef.current[0]?.type || 'video/webm';
         const blob = new Blob(chunksRef.current, { type });
+        if (blob.size === 0) {
+          toast({ title: 'Recording captured nothing', description: 'Record for at least 1 second and try again.' });
+          setPhase('ready');
+          return;
+        }
         previewBlobRef.current = blob;
         revokePreview();
         setPreviewUrl(URL.createObjectURL(blob));
@@ -157,7 +162,7 @@ const CameraCapture: React.FC = () => {
       };
 
       setSeconds(0);
-      recorder.start();
+      recorder.start(100); // collect chunks every 100ms — prevents empty blob on stop
       setPhase('recording');
       stopTimeoutRef.current = window.setTimeout(() => stopRecording(), MAX_SECONDS * 1000);
     } catch {
@@ -183,38 +188,18 @@ const CameraCapture: React.FC = () => {
     await startCamera(facing);
   };
 
-  const useClip = async () => {
-    if (!previewBlobRef.current || !user) {
-      toast({ title: 'Sign in required', description: 'Sign in to save camera clips to your vault.' });
+  const useClip = () => {
+    const blob = previewBlobRef.current;
+    if (!blob) return;
+    if (!user) {
+      toast({ title: 'Sign in required', description: 'Sign in to create GIFs from your clips.' });
       return;
     }
-    if (!isSupabaseConfigured) {
-      toast({ title: 'Storage is not configured', description: 'Add Supabase env variables before uploading clips.' });
-      return;
-    }
-
-    setUploading(true);
-    setPhase('uploading');
-    try {
-      const blob = previewBlobRef.current;
-      const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
-      const file = new File([blob], `camera-fwd-${Date.now()}.${ext}`, { type: blob.type || 'video/webm' });
-      const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-      const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
-        contentType: file.type,
-        upsert: false,
-      });
-      if (error) throw error;
-      const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
-      if (!data?.publicUrl) throw new Error('No public URL returned');
-      stopTracks();
-      nav(`/create?mediaUrl=${encodeURIComponent(data.publicUrl)}&type=camera`);
-    } catch (error: any) {
-      setPhase('preview');
-      toast({ title: 'Upload failed', description: error?.message || 'Try again or upload a clip instead.' });
-    } finally {
-      setUploading(false);
-    }
+    // Pass the blob URL directly to /create — no premature Supabase upload.
+    // CreateGif will fetch the blob, encode it to GIF, and upload only the final GIF.
+    const url = URL.createObjectURL(blob);
+    stopTracks();
+    nav('/create', { state: { image: url, mediaType: blob.type || 'video/webm' } });
   };
 
   const cancel = () => {
@@ -250,7 +235,7 @@ const CameraCapture: React.FC = () => {
 
       <div className="absolute inset-0">
         {phase === 'preview' && previewUrl ? (
-          <video src={previewUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+          <video key={previewUrl} src={previewUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
         ) : (
           <video
             ref={videoRef}

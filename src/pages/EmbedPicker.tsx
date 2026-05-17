@@ -34,6 +34,29 @@ export const postFwdEvent = (evt: PickerEvent) => {
   }
 };
 
+// Sends the fwd:gif:selected format that TreyTV's picker.ts expects
+function postGifSelected(asset: ReactionAsset): void {
+  const msg = {
+    type: 'fwd:gif:selected',
+    gif: {
+      gif_id: asset.id,
+      url: asset.gifUrl,
+      preview_url: asset.previewUrl ?? null,
+      title: asset.title ?? null,
+      width: asset.width ?? null,
+      height: asset.height ?? null,
+    },
+  };
+  try {
+    const origin = document.referrer ? new URL(document.referrer).origin : '*';
+    window.parent?.postMessage(msg, origin);
+    window.opener?.postMessage(msg, origin);
+  } catch {
+    window.parent?.postMessage(msg, '*');
+    window.opener?.postMessage(msg, '*');
+  }
+}
+
 export const gifToPayload = (g: Gif, usage?: PickerEvent['usage']): PickerEvent => ({
   type: 'FWD_GIF_SELECTED',
   provider: 'fwd',
@@ -92,41 +115,71 @@ const BlockedEmbed: React.FC<{ checking?: boolean }> = ({ checking }) => (
   </div>
 );
 
-// Supported context values for embed picker
-export type PickerContext = 
-  | 'message' 
-  | 'comment' 
-  | 'group_chat' 
-  | 'watch_party' 
-  | 'creator_channel' 
-  | 'feed_post' 
+export type PickerContext =
+  | 'message'
+  | 'comment'
+  | 'group_chat'
+  | 'watch_party'
+  | 'creator_channel'
+  | 'feed_post'
   | 'profile_reaction';
 
-// Supported mode values
 export type PickerMode = 'compact' | 'full';
-
-// Supported theme values
 export type PickerTheme = 'dark' | 'light';
+
+const MINE_TAB = 'Mine';
 
 const EmbedPicker: React.FC = () => {
   const [params] = useSearchParams();
-  
-  // Query params per spec
-  const embedKey = params.get('key') || '';
-  const source = params.get('source') || '';
-  const context = (params.get('context') || 'message') as PickerContext;
-  const userUid = params.get('user_uid') || '';
-  const theme = (params.get('theme') || 'dark') as PickerTheme;
-  const modeParam = (params.get('mode') || 'compact') as PickerMode;
-  const messageText = params.get('message') || params.get('draft') || '';
-  
+
+  const embedKey    = params.get('key') || '';
+  const source      = params.get('source') || '';
+  const context     = (params.get('context') || 'message') as PickerContext;
+  const treyTvUid   = params.get('trey_tv_uid') || params.get('user_uid') || '';
+  const theme       = (params.get('theme') || 'dark') as PickerTheme;
+  const modeParam   = (params.get('mode') || 'compact') as PickerMode;
+  const initialDraft = params.get('message') || params.get('draft') || '';
+
   const [accessState, setAccessState] = useState<'checking' | 'allowed' | 'blocked'>('checking');
   const [compact, setCompact] = useState(modeParam === 'compact');
   const [query, setQuery] = useState('');
-  const [cat, setCat] = useState('Trending');
-  const { results: scoutResults, scouting, attribution, sourcesUsed } = useRapidReactionScout(query, 10);
-  const predictive = usePredictiveGifs(messageText, context, 10);
+  const [cat, setCat] = useState(treyTvUid ? MINE_TAB : 'Trending');
 
+  // Live draft: seeded from URL param, updated by postMessage from parent
+  const [liveDraft, setLiveDraft] = useState(initialDraft);
+
+  // User's own GIFs for the Mine tab
+  const [userGifs, setUserGifs] = useState<ReactionAsset[]>([]);
+  const [loadingMine, setLoadingMine] = useState(false);
+  const [mineFetched, setMineFetched] = useState(false);
+
+  const { results: scoutResults, scouting, attribution, sourcesUsed } = useRapidReactionScout(query, 10);
+  const predictive = usePredictiveGifs(liveDraft, context, 10);
+
+  // Receive live draft updates from TreyTV as the user types
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      if (e.data?.type === 'fwd:draft:update' && typeof e.data.text === 'string') {
+        setLiveDraft(String(e.data.text).slice(0, 500));
+      }
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  // Fetch user's created + saved GIFs when the Mine tab is first opened
+  useEffect(() => {
+    if (cat !== MINE_TAB || !treyTvUid || !embedKey || accessState !== 'allowed' || mineFetched) return;
+    setMineFetched(true);
+    setLoadingMine(true);
+    fetch(`/api/picker/user-gifs?key=${encodeURIComponent(embedKey)}&trey_tv_uid=${encodeURIComponent(treyTvUid)}`)
+      .then(r => r.json())
+      .then(data => setUserGifs(Array.isArray(data.gifs) ? data.gifs : []))
+      .catch(() => setUserGifs([]))
+      .finally(() => setLoadingMine(false));
+  }, [cat, treyTvUid, embedKey, accessState, mineFetched]);
+
+  // Picker key / origin verification
   useEffect(() => {
     let cancelled = false;
 
@@ -143,13 +196,16 @@ const EmbedPicker: React.FC = () => {
       }
 
       try {
-        const response = await fetch(`${fwdConfig.supabaseUrl}/functions/v1/verify-picker-key?key=${encodeURIComponent(embedKey)}`, {
-          method: 'GET',
-          headers: {
-            apikey: fwdConfig.supabaseAnonKey,
-            Authorization: `Bearer ${fwdConfig.supabaseAnonKey}`,
+        const response = await fetch(
+          `${fwdConfig.supabaseUrl}/functions/v1/verify-picker-key?key=${encodeURIComponent(embedKey)}`,
+          {
+            method: 'GET',
+            headers: {
+              apikey: fwdConfig.supabaseAnonKey,
+              Authorization: `Bearer ${fwdConfig.supabaseAnonKey}`,
+            },
           },
-        });
+        );
 
         if (cancelled) return;
         if (response.ok) {
@@ -180,7 +236,9 @@ const EmbedPicker: React.FC = () => {
   }, [embedKey, source]);
 
   const results = useMemo(() => {
-    if (!query.trim() && messageText.trim().length >= 2) {
+    if (cat === MINE_TAB) return userGifs;
+
+    if (!query.trim() && liveDraft.trim().length >= 2) {
       return predictive.results;
     }
     if (!query.trim()) {
@@ -200,9 +258,9 @@ const EmbedPicker: React.FC = () => {
     if (cat === 'Trending') return scoutResults;
     const f = cat.toLowerCase();
     return scoutResults.filter(asset =>
-      asset.source !== 'fwd' || asset.tags.some(tag => tag.toLowerCase().includes(f))
+      asset.source !== 'fwd' || asset.tags.some(tag => tag.toLowerCase().includes(f)),
     );
-  }, [cat, messageText, predictive.results, query, scoutResults]);
+  }, [cat, liveDraft, predictive.results, query, scoutResults, userGifs]);
 
   const handleSelect = (asset: ReactionAsset) => {
     trackReactionSearch('search_result_clicked', {
@@ -212,7 +270,12 @@ const EmbedPicker: React.FC = () => {
     });
     trackReactionSearch('reaction_selected', { source: asset.source, sourceId: asset.sourceId });
     captureFallbackReaction(asset);
-    const evt = reactionToPayload(asset, { source: source || undefined, context, userUid: userUid || undefined });
+
+    // Primary format TreyTV's parseFwdPickerMessage expects
+    postGifSelected(asset);
+
+    // Legacy format for any other integrations
+    const evt = reactionToPayload(asset, { source: source || undefined, context, userUid: treyTvUid || undefined });
     if (source) evt.source = source;
     postFwdEvent(evt);
   };
@@ -225,12 +288,26 @@ const EmbedPicker: React.FC = () => {
     ? source.replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
     : '';
 
+  const headerLabel = cat === MINE_TAB
+    ? 'Your GIFs & Favorites'
+    : query
+    ? `Results (${results.length})`
+    : liveDraft.trim().length >= 2
+    ? `Suggested: ${predictive.prediction.query}`
+    : 'Trending';
+
   if (accessState === 'checking') return <BlockedEmbed checking />;
   if (accessState === 'blocked') return <BlockedEmbed />;
 
   return (
     <div className={`fixed inset-0 ${compact ? 'flex items-end' : ''} bg-black/40 backdrop-blur-md`}>
-      <div className={`mx-auto bg-gradient-to-b from-zinc-950 to-black border border-fuchsia-500/30 ${compact ? 'rounded-t-3xl w-full max-w-md max-h-[70vh]' : 'rounded-3xl w-full max-w-lg my-6 max-h-[90vh]'} flex flex-col overflow-hidden neon-glow-purple`}>
+      <div
+        className={`mx-auto bg-gradient-to-b from-zinc-950 to-black border border-fuchsia-500/30 ${
+          compact
+            ? 'rounded-t-3xl w-full max-w-md max-h-[70vh]'
+            : 'rounded-3xl w-full max-w-lg my-6 max-h-[90vh]'
+        } flex flex-col overflow-hidden neon-glow-purple`}
+      >
         {compact && <div className="mx-auto mt-2 w-10 h-1 rounded-full bg-zinc-700" />}
 
         <div className="flex items-center justify-between p-4">
@@ -245,10 +322,18 @@ const EmbedPicker: React.FC = () => {
             ) : null}
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => setCompact(!compact)} className="w-9 h-9 rounded-full glass flex items-center justify-center" title="Toggle compact">
+            <button
+              onClick={() => setCompact(!compact)}
+              className="w-9 h-9 rounded-full glass flex items-center justify-center"
+              title="Toggle compact"
+            >
               {compact ? <Maximize2 size={15} className="text-zinc-300" /> : <Minimize2 size={15} className="text-zinc-300" />}
             </button>
-            <button onClick={handleClose} className="w-9 h-9 rounded-full glass flex items-center justify-center" title="Close picker">
+            <button
+              onClick={handleClose}
+              className="w-9 h-9 rounded-full glass flex items-center justify-center"
+              title="Close picker"
+            >
               <X size={16} className="text-white" />
             </button>
           </div>
@@ -257,17 +342,39 @@ const EmbedPicker: React.FC = () => {
         <div className="px-4">
           <div className="glass-strong rounded-full px-4 py-2.5 border border-fuchsia-500/40 flex items-center gap-3">
             <SearchIcon size={16} className="text-zinc-400" />
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search GIFs, reactions, memes…"
-              className="flex-1 bg-transparent outline-none text-white placeholder-zinc-500 text-sm" />
+            <input
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search GIFs, reactions, memes…"
+              className="flex-1 bg-transparent outline-none text-white placeholder-zinc-500 text-sm"
+            />
             <Sparkles size={14} className="text-cyan-400" />
           </div>
 
           <div className="flex gap-2 overflow-x-auto scrollbar-hide py-3">
-            {CATEGORIES.slice(0, 6).map(c => (
-              <button key={c} onClick={() => setCat(c)}
-                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border ${
-                  c === cat ? 'bg-gradient-to-r from-fuchsia-600 to-purple-600 text-white border-transparent' : 'glass text-zinc-300 border-white/10'
-                }`}>
+            {treyTvUid && (
+              <button
+                key={MINE_TAB}
+                onClick={() => setCat(MINE_TAB)}
+                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                  cat === MINE_TAB
+                    ? 'bg-gradient-to-r from-fuchsia-600 to-purple-600 text-white border-transparent'
+                    : 'glass text-zinc-300 border-white/10'
+                }`}
+              >
+                My GIFs
+              </button>
+            )}
+            {CATEGORIES.slice(0, treyTvUid ? 5 : 6).map(c => (
+              <button
+                key={c}
+                onClick={() => setCat(c)}
+                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                  c === cat
+                    ? 'bg-gradient-to-r from-fuchsia-600 to-purple-600 text-white border-transparent'
+                    : 'glass text-zinc-300 border-white/10'
+                }`}
+              >
                 {c}
               </button>
             ))}
@@ -276,30 +383,63 @@ const EmbedPicker: React.FC = () => {
 
         <div className="flex-1 overflow-y-auto px-4 pb-4">
           <h3 className="text-xs uppercase tracking-wider font-bold text-zinc-400 mb-2">
-            {query ? `Results (${results.length})` : messageText.trim().length >= 2 ? `Predicted: ${predictive.prediction.query}` : 'Trending'}
+            {headerLabel}
           </h3>
-          {results.length === 0 ? (
+
+          {cat === MINE_TAB && loadingMine ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="text-fuchsia-400 animate-spin" size={24} />
+            </div>
+          ) : cat === MINE_TAB && !loadingMine && results.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-zinc-400 text-sm font-medium">No GIFs yet</p>
+              <p className="text-zinc-600 text-xs mt-1">Create or save GIFs in FWD and they'll show up here.</p>
+              <a
+                href="https://fwd.treytv.com/create"
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 inline-block text-xs text-fuchsia-400 hover:text-fuchsia-300 underline underline-offset-2"
+              >
+                Open FWD to get started
+              </a>
+            </div>
+          ) : results.length === 0 ? (
             <div className="text-center py-10 text-zinc-500 text-sm">Loading reactions...</div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {results.map(asset => (
-                <button key={asset.id} onClick={() => handleSelect(asset)}
-                  className="relative rounded-xl overflow-hidden border border-fuchsia-500/20 hover:border-fuchsia-500/70 hover:scale-[1.02] transition group">
-                  <img src={asset.previewUrl} className="w-full aspect-square object-cover" loading="lazy" alt={`${asset.title} reaction`} />
+                <button
+                  key={asset.id}
+                  onClick={() => handleSelect(asset)}
+                  className="relative rounded-xl overflow-hidden border border-fuchsia-500/20 hover:border-fuchsia-500/70 hover:scale-[1.02] transition group"
+                >
+                  <img
+                    src={asset.previewUrl}
+                    className="w-full aspect-square object-cover"
+                    loading="lazy"
+                    alt={`${asset.title} reaction`}
+                  />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
                   <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/60 text-[9px] font-bold text-white">
-                    {asset.source === 'giphy' || asset.source === 'tenor' ? asset.source.toUpperCase() : 'GIF'}
+                    {asset.source === 'giphy' || asset.source === 'tenor'
+                      ? asset.source.toUpperCase()
+                      : 'GIF'}
                   </span>
-                  <span className="absolute bottom-1.5 left-1.5 text-[10px] font-bold text-white truncate max-w-[85%]">{asset.title}</span>
+                  <span className="absolute bottom-1.5 left-1.5 text-[10px] font-bold text-white truncate max-w-[85%]">
+                    {asset.title}
+                  </span>
                 </button>
               ))}
             </div>
           )}
-          {(query && scouting) || (!query && messageText.trim().length >= 2 && predictive.loading) ? (
+
+          {((query && scouting) || (!query && liveDraft.trim().length >= 2 && predictive.loading)) && (
             <div className="mt-3 text-center text-[11px] text-cyan-300">
-              {!query ? 'Predictive GIF is matching the message...' : 'Rapid Reaction Scout is finding more...'}
+              {!query
+                ? 'Predictive GIF is matching the message...'
+                : 'Rapid Reaction Scout is finding more...'}
             </div>
-          ) : null}
+          )}
         </div>
 
         <div className="px-4 py-2 border-t border-white/5 text-center">

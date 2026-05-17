@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Heart, Play, Share2 } from 'lucide-react';
+import { Bookmark, Play, Share2, Trash2 } from 'lucide-react';
 import { Gif, useAppContext } from '@/contexts/AppContext';
 import FwdAnimatedGif from '@/components/FwdAnimatedGif';
 import { toast } from '@/components/ui/use-toast';
@@ -8,24 +8,32 @@ import { toast } from '@/components/ui/use-toast';
 interface Props {
   gif: Gif;
   onClick?: (g: Gif) => void;
-  showHeart?: boolean;
+  showHeart?: boolean; // kept for backward compat, no longer used
   showShare?: boolean;
   tall?: boolean;
   className?: string;
+  onDelete?: () => void;
 }
 
-const GifCard: React.FC<Props> = ({ gif, onClick, showHeart = true, showShare = false, tall = false, className = '' }) => {
+const GifCard: React.FC<Props> = ({
+  gif,
+  onClick,
+  showShare = false,
+  tall = false,
+  className = '',
+  onDelete,
+}) => {
   const nav = useNavigate();
   const { toggleFavorite, isFavorite } = useAppContext();
-  const fav = isFavorite(gif.id, gif.image);
+  const saved = isFavorite(gif.id, gif.image);
   const [dead, setDead] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const handleClick = () => {
     if (onClick) onClick(gif);
     else nav(`/gif/${gif.id}`);
   };
 
-  // Hide cards where the image failed or Giphy returned their "not available" placeholder
   const handleLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
     if (img.naturalWidth <= 1 || img.naturalHeight <= 1) setDead(true);
@@ -44,12 +52,15 @@ const GifCard: React.FC<Props> = ({ gif, onClick, showHeart = true, showShare = 
         title={gif.title}
         className="w-full h-full object-cover"
         onError={() => setDead(true)}
+        onLoad={handleLoad}
       />
       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/0 to-black/30" />
       <span className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/60 backdrop-blur text-[10px] font-bold tracking-wider text-white border border-white/10">
         GIF
       </span>
-      {showHeart && (
+
+      {/* Save to Library — always visible, like the GIF badge */}
+      {!onDelete && (
         <button
           onClick={async (e) => {
             e.stopPropagation();
@@ -60,16 +71,56 @@ const GifCard: React.FC<Props> = ({ gif, onClick, showHeart = true, showShare = 
             } else if (res && res.error) {
               toast({ title: 'Library update failed', description: res.error, variant: 'destructive' });
             } else {
-              toast({ title: fav ? 'Removed from My Library' : 'Saved to My Library' });
+              toast({ title: saved ? 'Removed from My Library' : 'Saved to My Library' });
             }
           }}
           className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 backdrop-blur flex items-center justify-center border border-white/10 hover:scale-110 transition"
-          title={fav ? 'Remove from My Library' : 'Save to My Library'}
+          title={saved ? 'Remove from My Library' : 'Save to My Library'}
         >
-          <Heart size={16} className={fav ? 'fill-pink-500 text-pink-500' : 'text-white'}
-            style={fav ? { filter: 'drop-shadow(0 0 8px rgba(236,72,153,0.9))' } : {}} />
+          <Bookmark
+            size={15}
+            className={saved ? 'fill-fuchsia-400 text-fuchsia-400' : 'text-white'}
+            style={saved ? { filter: 'drop-shadow(0 0 6px rgba(176,38,255,0.9))' } : {}}
+          />
         </button>
       )}
+
+      {/* Delete (owner only) — occupies the same top-right corner */}
+      {onDelete && !confirmDelete && (
+        <button
+          onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
+          className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur flex items-center justify-center border border-white/10 opacity-0 group-hover:opacity-100 transition"
+          title="Delete GIF"
+        >
+          <Trash2 size={14} className="text-zinc-300" />
+        </button>
+      )}
+
+      {/* Delete confirmation */}
+      {onDelete && confirmDelete && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center gap-2 z-10 p-3"
+        >
+          <p className="text-white text-xs font-bold text-center">Delete this GIF?</p>
+          <p className="text-zinc-400 text-[10px] text-center">This can't be undone.</p>
+          <div className="flex gap-2 mt-1">
+            <button
+              onClick={() => { setConfirmDelete(false); onDelete(); }}
+              className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-500 transition"
+            >
+              Delete
+            </button>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="px-3 py-1.5 rounded-lg glass border border-white/15 text-white text-xs font-bold"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       <button className="absolute bottom-2 left-2 w-8 h-8 rounded-full bg-black/50 backdrop-blur flex items-center justify-center border border-white/10">
         <Play size={14} className="text-white ml-0.5" />
       </button>

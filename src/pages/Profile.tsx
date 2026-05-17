@@ -22,7 +22,7 @@ const Profile: React.FC = () => {
   const [editMode, setEditMode] = useState(false);
   const [libraryFilter, setLibraryFilter] = useState('All');
   const [libraryQuery, setLibraryQuery] = useState('');
-  const { favorites, collections, userGifs, feedPosts, savedLibrary, removeSavedGif } = useAppContext();
+  const { favorites, collections, userGifs, feedPosts, savedLibrary, removeSavedGif, deleteUserGif } = useAppContext();
   const { user, profile, signOut, updateProfile, updatePassword } = useAuth();
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const myPosts = feedPosts.filter(p => p.user_id === user?.id);
@@ -324,7 +324,17 @@ const Profile: React.FC = () => {
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                {userGifs.map(g => <GifCard key={g.id} gif={g} showHeart={false} />)}
+                {userGifs.map(g => (
+                  <GifCard
+                    key={g.id}
+                    gif={g}
+                    showHeart={false}
+                    onDelete={async () => {
+                      const ok = await deleteUserGif(g.id);
+                      if (!ok) toast({ title: 'Delete failed', description: 'Could not delete that GIF. Try again.', variant: 'destructive' });
+                    }}
+                  />
+                ))}
               </div>
             )}
           </>
