@@ -58,7 +58,7 @@ const App = () => (
                 <Route path="/gif/:id" element={<GifDetail />} />
                 <Route path="/create" element={<ProtectedRoute><CreateGif /></ProtectedRoute>} />
                 <Route path="/camera" element={<ProtectedRoute><CameraCapture /></ProtectedRoute>} />
-                <Route path="/favorites" element={<Favorites />} />
+                <Route path="/favorites" element={<ProtectedRoute><Favorites /></ProtectedRoute>} />
                 <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
                 <Route path="/collections" element={<ProtectedRoute><Collections /></ProtectedRoute>} />
                 <Route path="/embed/picker" element={<EmbedPicker />} />
@@ -68,7 +68,7 @@ const App = () => (
                 <Route path="/settings/picker-keys" element={<ProtectedRoute><PickerKeys /></ProtectedRoute>} />
                 <Route path="/picker-api-keys" element={<ProtectedRoute><PickerKeys /></ProtectedRoute>} />
                 <Route path="/integration-status" element={<IntegrationStatus />} />
-                <Route path="/feed" element={<Feed />} />
+                <Route path="/feed" element={<ProtectedRoute><Feed /></ProtectedRoute>} />
                 <Route path="/f/:id" element={<FwdShare />} />
                 <Route path="/settings/integrations" element={<ProtectedRoute><PickerKeyManager /></ProtectedRoute>} />
                 <Route path="*" element={<NotFound />} />
