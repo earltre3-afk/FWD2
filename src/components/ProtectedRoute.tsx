@@ -12,7 +12,7 @@ interface Props {
 const ProtectedRoute: React.FC<Props> = ({ children }) => {
   const { user, loading } = useAuth();
   const nav = useNavigate();
-  const [showAuth, setShowAuth] = useState(false);
+  const [showAuth, setShowAuth] = useState(true);
 
   if (loading) {
     return (
