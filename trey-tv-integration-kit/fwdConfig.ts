@@ -57,6 +57,7 @@ export function buildFwdPickerUrl(config: FwdPickerConfig): string {
     source,
     context,
     userUid,
+    messageText,
     theme = DEFAULT_FWD_THEME,
     mode = DEFAULT_FWD_MODE,
   } = config;
@@ -66,6 +67,7 @@ export function buildFwdPickerUrl(config: FwdPickerConfig): string {
   params.set('source', source);
   params.set('context', context);
   if (userUid) params.set('user_uid', userUid);
+  if (messageText?.trim()) params.set('message', messageText.trim().slice(0, 500));
   params.set('theme', theme);
   params.set('mode', mode);
 

@@ -22,7 +22,7 @@
 // Response:
 //   { ok: true }  or  { ok: false, error: string }
 
-// @ts-ignore — Deno runtime
+// @ts-expect-error — Deno runtime
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 const CORS = {
@@ -44,7 +44,7 @@ const normalizeOrigin = (v: string | null): string => {
   catch { return v.trim().replace(/\/+$/, ''); }
 };
 
-// @ts-ignore — Deno.serve available in Supabase Edge runtime
+// @ts-expect-error — Deno.serve available in Supabase Edge runtime
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ ok: false, error: 'method_not_allowed' }, 405);
@@ -66,9 +66,9 @@ Deno.serve(async (req: Request) => {
   if (!key)    return json({ ok: false, error: 'missing_key' }, 400);
   if (!gif_id) return json({ ok: false, error: 'missing_gif_id' }, 400);
 
-  // @ts-ignore
+  // @ts-expect-error Deno runtime type gap
   const SUPABASE_URL          = Deno.env.get('SUPABASE_URL') || '';
-  // @ts-ignore
+  // @ts-expect-error Deno runtime type gap
   const SUPABASE_SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE)

@@ -23,13 +23,20 @@ Copy `.env.example` into Vercel Project Settings > Environment Variables.
 Required for production auth/database/storage behavior:
 
 ```env
-VITE_SUPABASE_URL=
-VITE_SUPABASE_ANON_KEY=
+VITE_SUPABASE_URL=https://vqsginrwooajjrgduina.supabase.co
+VITE_SUPABASE_ANON_KEY=PASTE_SUPABASE_ANON_KEY_HERE
 VITE_FWD_APP_URL=https://fwd.treytv.com
 VITE_FWD_ALLOWED_PARENT_ORIGINS=https://tv.treytrizzy.com,https://treytv.com,https://www.treytv.com,http://localhost:3000,http://localhost:5173
+GIPHY_API_KEY=
+TENOR_API_KEY=
+RAPID_REACTION_SCOUT_ENABLED=true
+RAPID_REACTION_DEFAULT_LIMIT=10
+SUPABASE_URL=https://vqsginrwooajjrgduina.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=PASTE_SERVER_ONLY_SERVICE_ROLE_KEY_HERE
 ```
 
-The app currently includes fallback public database credentials from the source export so the Famous.ai preview can keep working. For production, set the Vercel variables above and manage the database/backend from the database provider dashboard.
+The browser app does not include fallback database credentials. For local development, copy `.env.example` to `.env.local`, fill in the public anon key, fully stop the dev server, then restart it with `npm run dev`.
+Rapid Reaction Scout provider keys and `SUPABASE_SERVICE_ROLE_KEY` are server-only. Do not prefix them with `VITE_`.
 
 ## Local check
 

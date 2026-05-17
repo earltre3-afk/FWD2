@@ -21,9 +21,9 @@
 //   SUPABASE_URL                  Auto-provided
 //   SUPABASE_SERVICE_ROLE_KEY     Auto-provided
 
-// @ts-ignore — Deno runtime in Supabase Edge Functions
+// @ts-expect-error — Deno runtime in Supabase Edge Functions
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
-// @ts-ignore — Deno-friendly Supabase JS import
+// @ts-expect-error — Deno-friendly Supabase JS import
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 const CORS_HEADERS: Record<string, string> = {
@@ -77,19 +77,19 @@ serve(async (req: Request) => {
     return json({ ok: false, error: 'Method not allowed' }, 405);
   }
 
-  // @ts-ignore — Deno global available in Edge Functions runtime
+  // @ts-expect-error — Deno global available in Edge Functions runtime
   const TREY_TV_OAUTH_ISSUER = (Deno.env.get('TREY_TV_OAUTH_ISSUER') || '').replace(/\/$/, '');
-  // @ts-ignore
+  // @ts-expect-error Deno runtime type gap
   const TREY_TV_AUTH_URL = (Deno.env.get('TREY_TV_AUTH_URL') ||
     'https://tv.treytrizzy.com').replace(/\/$/, '');
-  // @ts-ignore
+  // @ts-expect-error Deno runtime type gap
   const TREY_TV_OAUTH_CLIENT_ID = Deno.env.get('TREY_TV_OAUTH_CLIENT_ID') || '';
-  // @ts-ignore
+  // @ts-expect-error Deno runtime type gap
   const TREY_TV_OAUTH_CLIENT_SECRET =
     Deno.env.get('TREY_TV_OAUTH_CLIENT_SECRET') || '';
-  // @ts-ignore
+  // @ts-expect-error Deno runtime type gap
   const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
-  // @ts-ignore
+  // @ts-expect-error Deno runtime type gap
   const SUPABASE_SERVICE_ROLE_KEY =
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 
@@ -282,7 +282,7 @@ serve(async (req: Request) => {
         .maybeSingle()
     : { data: null };
 
-  let fwdUserId: string | null =
+  const fwdUserId: string | null =
     existingLink?.fwd_user_id ?? existingLegacy?.fwd_user_id ?? null;
   let isNew = false;
 

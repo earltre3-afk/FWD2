@@ -22,6 +22,7 @@ const PublicProfile: React.FC = () => {
   const nav = useNavigate();
   const [profile, setProfile] = useState<ProfileRow | null>(null);
   const [gifs, setGifs] = useState<Gif[]>([]);
+  const [counts, setCounts] = useState({ followers: 0, following: 0, saved: 0 });
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
@@ -42,13 +43,23 @@ const PublicProfile: React.FC = () => {
       if ((p as any).is_public === false) {
         setGifs([]); setLoading(false); return;
       }
-      const { data: g } = await supabase
+      const [{ data: g }, followersRes, followingRes, savedRes] = await Promise.all([
+        supabase
         .from('user_gifs')
         .select('*')
         .eq('user_id', (p as any).id)
         .eq('is_public', true)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false }),
+        supabase.from('follows').select('id', { count: 'exact', head: true }).eq('following_id', (p as any).id),
+        supabase.from('follows').select('id', { count: 'exact', head: true }).eq('follower_id', (p as any).id),
+        supabase.from('saved_gifs').select('id', { count: 'exact', head: true }).eq('user_id', (p as any).id).eq('is_private', false),
+      ]);
       if (cancel) return;
+      setCounts({
+        followers: followersRes.count || 0,
+        following: followingRes.count || 0,
+        saved: savedRes.count || 0,
+      });
       setGifs((g || []).map((row: any) => ({
         id: row.id, title: row.title, image: row.image_url, tags: row.tags || [],
         category: row.category || 'Reactions', mood: row.mood, user_id: row.user_id,
@@ -101,6 +112,11 @@ const PublicProfile: React.FC = () => {
                   </div>
                   <p className="text-zinc-500 text-sm truncate">@{handle}</p>
                   <p className="text-zinc-300 text-sm mt-1 line-clamp-3">{bio}</p>
+                  <div className="flex gap-3 mt-2 text-[11px] text-zinc-400">
+                    <span><b className="text-white">{counts.followers}</b> followers</span>
+                    <span><b className="text-white">{counts.following}</b> following</span>
+                    <span><b className="text-white">{counts.saved}</b> saved</span>
+                  </div>
                   <div className="mt-3">
                     <FollowButton targetUserId={profile.id} size="md" />
                   </div>

@@ -216,6 +216,7 @@ const ExampleMessageComposer: React.FC<MessageComposerProps> = ({ userUid, onSen
         source="trey_tv"
         context="message"
         userUid={userUid}
+        messageText={text}
         mode="compact"
         theme="dark"
       />

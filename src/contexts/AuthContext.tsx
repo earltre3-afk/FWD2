@@ -7,7 +7,10 @@ export interface FwdProfile {
   username: string | null;
   display_name: string | null;
   avatar_url: string | null;
+  banner_url?: string | null;
   bio: string | null;
+  location?: string | null;
+  website_url?: string | null;
   is_public?: boolean | null;
 }
 
@@ -19,6 +22,8 @@ interface AuthContextType {
   signInWithEmail: (email: string, password: string) => Promise<{ error?: string }>;
   signUpWithEmail: (email: string, password: string, displayName: string) => Promise<{ error?: string }>;
   signInWithOAuth: (provider: 'google' | 'github' | 'custom:trey-tv') => Promise<{ error?: string }>;
+  requestPasswordReset: (email: string) => Promise<{ error?: string }>;
+  updatePassword: (password: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   updateProfile: (patch: Partial<FwdProfile>) => Promise<{ error?: string }>;
@@ -26,6 +31,20 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType>({} as any);
 export const useAuth = () => useContext(AuthContext);
+
+const friendlyAuthError = (raw?: string) => {
+  if (!raw) return undefined;
+  const m = raw.toLowerCase();
+  if (m.includes('invalid login') || m.includes('invalid credentials')) return "We couldn't sign you in. Check your email and password.";
+  if (m.includes('already registered') || m.includes('user already exists')) return 'That email is already on FWD. Try signing in instead.';
+  if (m.includes('password')) return 'That password did not work. Try a stronger password or reset it.';
+  if (m.includes('rate') || m.includes('too many')) return 'Too many attempts. Try again in a moment.';
+  if (m.includes('network') || m.includes('fetch')) return 'Network hiccup. Check your connection and try again.';
+  return 'Something went wrong. Please try again.';
+};
+
+export const normalizeUsername = (value: string) =>
+  value.toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -35,7 +54,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchProfile = useCallback(async (uid: string) => {
     const { data } = await supabase.from('profiles').select('*').eq('id', uid).maybeSingle();
-    if (data) setProfile(data as FwdProfile);
+    if (data) setProfile({
+      ...data,
+      website_url: data.link_url ?? null,
+      is_public: data.profile_visibility !== 'private',
+    } as FwdProfile);
   }, []);
 
   useEffect(() => {
@@ -58,15 +81,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signInWithEmail = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error?.message };
+    return { error: friendlyAuthError(error?.message) };
   };
 
   const signUpWithEmail = async (email: string, password: string, displayName: string) => {
+    const username = normalizeUsername(displayName || email.split('@')[0]) || `fwd_${crypto.randomUUID().slice(0, 8)}`;
     const { error } = await supabase.auth.signUp({
       email, password,
-      options: { data: { display_name: displayName, full_name: displayName } },
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        data: { display_name: displayName, full_name: displayName, username },
+      },
     });
-    return { error: error?.message };
+    return { error: friendlyAuthError(error?.message) };
   };
 
   const signInWithOAuth = async (provider: 'google' | 'github' | 'custom:trey-tv') => {
@@ -84,7 +111,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...(isTreyTv ? { scopes: 'openid email profile' } : {}),
       },
     });
-    return { error: error?.message };
+    return { error: friendlyAuthError(error?.message) };
+  };
+
+  const requestPasswordReset = async (email: string) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    return { error: friendlyAuthError(error?.message) };
+  };
+
+  const updatePassword = async (password: string) => {
+    const { error } = await supabase.auth.updateUser({ password });
+    return { error: friendlyAuthError(error?.message) };
   };
 
   const signOut = async () => {
@@ -100,13 +139,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateProfile = async (patch: Partial<FwdProfile>) => {
     if (!user) return { error: 'Not signed in' };
-    const { error } = await supabase.from('profiles').update(patch).eq('id', user.id);
+    const dbPatch: Record<string, any> = { ...patch };
+    if (typeof dbPatch.username === 'string') {
+      dbPatch.username = normalizeUsername(dbPatch.username);
+      if (dbPatch.username.length < 3) return { error: 'Username must be at least 3 characters.' };
+    }
+    // Map virtual fields to actual DB columns
+    if ('is_public' in dbPatch) {
+      dbPatch.profile_visibility = dbPatch.is_public ? 'public' : 'private';
+      delete dbPatch.is_public;
+    }
+    if ('website_url' in dbPatch) {
+      dbPatch.link_url = dbPatch.website_url;
+      delete dbPatch.website_url;
+    }
+    const { error } = await supabase.from('profiles').update(dbPatch).eq('id', user.id);
     if (!error) await fetchProfile(user.id);
-    return { error: error?.message };
+    if (error?.code === '23505' || error?.message?.toLowerCase().includes('duplicate')) return { error: 'That username is already taken.' };
+    return { error: error ? 'Profile save failed. Please try again.' : undefined };
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, profile, loading, signInWithEmail, signUpWithEmail, signInWithOAuth, signOut, refreshProfile, updateProfile }}>
+    <AuthContext.Provider value={{ user, session, profile, loading, signInWithEmail, signUpWithEmail, signInWithOAuth, requestPasswordReset, updatePassword, signOut, refreshProfile, updateProfile }}>
       {children}
     </AuthContext.Provider>
   );

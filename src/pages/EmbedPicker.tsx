@@ -5,6 +5,10 @@ import FwdLogo from '@/components/FwdLogo';
 import { GIFS, CATEGORIES } from '@/data/gifs';
 import { Gif } from '@/contexts/AppContext';
 import { fwdConfig } from '@/lib/supabase';
+import { captureFallbackReaction, trackReactionSearch } from '@/lib/rapidReactionScout';
+import { useRapidReactionScout } from '@/hooks/useRapidReactionScout';
+import { usePredictiveGifs } from '@/hooks/usePredictiveGifs';
+import type { ReactionAsset } from '@/types/reactions';
 
 interface PickerEvent {
   type: 'FWD_GIF_SELECTED' | 'FWD_PICKER_CLOSED' | 'FWD_PICKER_ERROR' | 'FWD_PICKER_READY';
@@ -46,6 +50,25 @@ export const gifToPayload = (g: Gif, usage?: PickerEvent['usage']): PickerEvent 
     format: 'gif',
     altText: `${g.title} reaction GIF`,
     tags: g.tags,
+  },
+});
+
+const reactionToPayload = (asset: ReactionAsset, usage?: PickerEvent['usage']): PickerEvent => ({
+  type: 'FWD_GIF_SELECTED',
+  provider: 'fwd',
+  usage,
+  gif: {
+    id: asset.id,
+    title: asset.title,
+    mediaUrl: asset.gifUrl,
+    previewUrl: asset.previewUrl,
+    thumbnailUrl: asset.previewUrl,
+    width: asset.width || 480,
+    height: asset.height || 480,
+    duration: 2.8,
+    format: 'gif',
+    altText: `${asset.title} reaction GIF`,
+    tags: asset.tags,
   },
 });
 
@@ -95,11 +118,14 @@ const EmbedPicker: React.FC = () => {
   const userUid = params.get('user_uid') || '';
   const theme = (params.get('theme') || 'dark') as PickerTheme;
   const modeParam = (params.get('mode') || 'compact') as PickerMode;
+  const messageText = params.get('message') || params.get('draft') || '';
   
   const [accessState, setAccessState] = useState<'checking' | 'allowed' | 'blocked'>('checking');
   const [compact, setCompact] = useState(modeParam === 'compact');
   const [query, setQuery] = useState('');
   const [cat, setCat] = useState('Trending');
+  const { results: scoutResults, scouting, attribution, sourcesUsed } = useRapidReactionScout(query, 10);
+  const predictive = usePredictiveGifs(messageText, context, 10);
 
   useEffect(() => {
     let cancelled = false;
@@ -154,17 +180,39 @@ const EmbedPicker: React.FC = () => {
   }, [embedKey, source]);
 
   const results = useMemo(() => {
-    let r = GIFS;
-    if (cat !== 'Trending') r = r.filter(g => g.category === cat);
-    if (query.trim()) {
-      const q = query.toLowerCase();
-      r = r.filter(g => g.title.toLowerCase().includes(q) || g.tags.some(t => t.toLowerCase().includes(q)));
+    if (!query.trim() && messageText.trim().length >= 2) {
+      return predictive.results;
     }
-    return r;
-  }, [cat, query]);
+    if (!query.trim()) {
+      let r = GIFS;
+      if (cat !== 'Trending') r = r.filter(g => g.category === cat);
+      return r.slice(0, 10).map(g => ({
+        id: `fwd:${g.id}`,
+        source: 'fwd' as const,
+        sourceId: g.id,
+        query: '',
+        title: g.title,
+        tags: [...g.tags, g.category, g.mood || ''].filter(Boolean),
+        previewUrl: g.image,
+        gifUrl: g.image,
+      }));
+    }
+    if (cat === 'Trending') return scoutResults;
+    const f = cat.toLowerCase();
+    return scoutResults.filter(asset =>
+      asset.source !== 'fwd' || asset.tags.some(tag => tag.toLowerCase().includes(f))
+    );
+  }, [cat, messageText, predictive.results, query, scoutResults]);
 
-  const handleSelect = (g: Gif) => {
-    const evt = gifToPayload(g, { source: source || undefined, context, userUid: userUid || undefined });
+  const handleSelect = (asset: ReactionAsset) => {
+    trackReactionSearch('search_result_clicked', {
+      query: query.trim().toLowerCase(),
+      source: asset.source,
+      sourceId: asset.sourceId,
+    });
+    trackReactionSearch('reaction_selected', { source: asset.source, sourceId: asset.sourceId });
+    captureFallbackReaction(asset);
+    const evt = reactionToPayload(asset, { source: source || undefined, context, userUid: userUid || undefined });
     if (source) evt.source = source;
     postFwdEvent(evt);
   };
@@ -228,27 +276,38 @@ const EmbedPicker: React.FC = () => {
 
         <div className="flex-1 overflow-y-auto px-4 pb-4">
           <h3 className="text-xs uppercase tracking-wider font-bold text-zinc-400 mb-2">
-            {query ? `Results (${results.length})` : 'Trending'}
+            {query ? `Results (${results.length})` : messageText.trim().length >= 2 ? `Predicted: ${predictive.prediction.query}` : 'Trending'}
           </h3>
           {results.length === 0 ? (
-            <div className="text-center py-10 text-zinc-500 text-sm">No reaction found yet.</div>
+            <div className="text-center py-10 text-zinc-500 text-sm">Loading reactions...</div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {results.map(g => (
-                <button key={g.id} onClick={() => handleSelect(g)}
+              {results.map(asset => (
+                <button key={asset.id} onClick={() => handleSelect(asset)}
                   className="relative rounded-xl overflow-hidden border border-fuchsia-500/20 hover:border-fuchsia-500/70 hover:scale-[1.02] transition group">
-                  <img src={g.image} className="w-full aspect-square object-cover" alt={`${g.title} reaction`} />
+                  <img src={asset.previewUrl} className="w-full aspect-square object-cover" loading="lazy" alt={`${asset.title} reaction`} />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-                  <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/60 text-[9px] font-bold text-white">GIF</span>
-                  <span className="absolute bottom-1.5 left-1.5 text-[10px] font-bold text-white truncate max-w-[85%]">{g.title}</span>
+                  <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/60 text-[9px] font-bold text-white">
+                    {asset.source === 'giphy' || asset.source === 'tenor' ? asset.source.toUpperCase() : 'GIF'}
+                  </span>
+                  <span className="absolute bottom-1.5 left-1.5 text-[10px] font-bold text-white truncate max-w-[85%]">{asset.title}</span>
                 </button>
               ))}
             </div>
           )}
+          {(query && scouting) || (!query && messageText.trim().length >= 2 && predictive.loading) ? (
+            <div className="mt-3 text-center text-[11px] text-cyan-300">
+              {!query ? 'Predictive GIF is matching the message...' : 'Rapid Reaction Scout is finding more...'}
+            </div>
+          ) : null}
         </div>
 
         <div className="px-4 py-2 border-t border-white/5 text-center">
-          <span className="text-[10px] uppercase tracking-wider text-zinc-500">Powered by FWD</span>
+          <span className="text-[10px] uppercase tracking-wider text-zinc-500">
+            {attribution.length > 0 && sourcesUsed.some(s => s === 'giphy' || s === 'tenor')
+              ? attribution.map(item => item.label).join(' · ')
+              : 'Powered by FWD'}
+          </span>
         </div>
       </div>
     </div>

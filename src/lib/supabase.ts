@@ -1,11 +1,21 @@
 import { createClient } from '@supabase/supabase-js';
 
+const requiredEnv = (name: 'VITE_SUPABASE_URL' | 'VITE_SUPABASE_ANON_KEY') => {
+  const value = import.meta.env[name];
+  if (!value) {
+    throw new Error(
+      `Missing ${name}. Add it to .env.local for local development and to Vercel env vars for production.`
+    );
+  }
+  return value;
+};
+
 export const isSupabaseConfigured = Boolean(
   import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY
 );
 
-export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://example.supabase.co';
-export const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'missing-anon-key';
+export const supabaseUrl = requiredEnv('VITE_SUPABASE_URL');
+export const supabaseAnonKey = requiredEnv('VITE_SUPABASE_ANON_KEY');
 
 if (!isSupabaseConfigured) {
   console.warn(

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, Mail, Lock, User as UserIcon, Loader2, Github } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { FwdMark } from './FwdLogo';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/components/ui/use-toast';
@@ -46,6 +47,7 @@ const friendlyError = (raw: string | undefined, mode: 'signin' | 'signup'): stri
 
 const AuthModal: React.FC<Props> = ({ open, onClose, initialMode = 'signin' }) => {
   const { signInWithEmail, signUpWithEmail, signInWithOAuth } = useAuth();
+  const navigate = useNavigate();
   const [mode, setMode] = useState<'signin' | 'signup'>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -155,6 +157,15 @@ const AuthModal: React.FC<Props> = ({ open, onClose, initialMode = 'signin' }) =
             {mode === 'signin' ? 'Sign In' : 'Create Account'}
           </button>
         </form>
+
+        {mode === 'signin' && (
+          <button
+            onClick={() => { onClose(); navigate('/forgot-password'); }}
+            className="mt-3 w-full text-center text-xs text-cyan-300 hover:text-cyan-200 font-semibold"
+          >
+            Forgot password?
+          </button>
+        )}
 
         <p className="text-center text-sm text-zinc-400 mt-5">
           {mode === 'signin' ? "Don't have an account?" : 'Already on FWD?'}{' '}

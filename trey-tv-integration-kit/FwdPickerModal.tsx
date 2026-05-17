@@ -50,6 +50,8 @@ interface FwdPickerModalProps {
   context: FwdPickerContext;
   /** Optional user UID for tracking */
   userUid?: string;
+  /** Current composer text for predictive GIF recommendations */
+  messageText?: string;
   /** Theme: 'dark' or 'light' */
   theme?: FwdPickerTheme;
   /** Mode: 'compact' or 'full' */
@@ -69,6 +71,7 @@ const FwdPickerModal: React.FC<FwdPickerModalProps> = ({
   source,
   context,
   userUid,
+  messageText,
   theme = DEFAULT_FWD_THEME,
   mode = DEFAULT_FWD_MODE,
   overlayClassName,
@@ -82,6 +85,7 @@ const FwdPickerModal: React.FC<FwdPickerModalProps> = ({
     source,
     context,
     userUid,
+    messageText,
     theme,
     mode,
   });

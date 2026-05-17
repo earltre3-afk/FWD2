@@ -28,6 +28,8 @@ import AuthCallback from "./pages/AuthCallback";
 import TreyTvCallback from "./pages/TreyTvCallback";
 import TreyTvStart from "./pages/TreyTvStart";
 import PickerKeyManager from "./pages/PickerKeyManager";
+import Feed from "./pages/Feed";
+import PasswordReset from "./pages/PasswordReset";
 
 const queryClient = new QueryClient();
 
@@ -45,6 +47,8 @@ const App = () => (
                 <Route path="/home" element={<Home />} />
                 <Route path="/login" element={<AuthRoute mode="signin" />} />
                 <Route path="/signup" element={<AuthRoute mode="signup" />} />
+                <Route path="/forgot-password" element={<PasswordReset mode="request" />} />
+                <Route path="/reset-password" element={<PasswordReset mode="reset" />} />
                 <Route path="/auth/callback" element={<AuthCallback />} />
                 <Route path="/auth/trey-tv/start" element={<TreyTvStart />} />
                 <Route path="/auth/trey-tv/callback" element={<TreyTvCallback />} />
@@ -63,6 +67,7 @@ const App = () => (
                 <Route path="/settings/picker-keys" element={<ProtectedRoute><PickerKeys /></ProtectedRoute>} />
                 <Route path="/picker-api-keys" element={<ProtectedRoute><PickerKeys /></ProtectedRoute>} />
                 <Route path="/integration-status" element={<IntegrationStatus />} />
+                <Route path="/feed" element={<Feed />} />
                 <Route path="/settings/integrations" element={<ProtectedRoute><PickerKeyManager /></ProtectedRoute>} />
                 <Route path="*" element={<NotFound />} />
 

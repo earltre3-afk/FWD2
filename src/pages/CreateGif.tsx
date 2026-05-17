@@ -1,13 +1,19 @@
-import React, { useMemo, useState } from 'react';
-
+import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, Bell, Scissors, Crop, Type, Smile, Gauge, Aperture, Camera, Play, X, ChevronDown, Globe, Lock, ChevronsRight, Loader2 } from 'lucide-react';
+import {
+  ArrowLeft, Bell, Scissors, Crop, Type, Smile, Gauge, Aperture, Camera, Play,
+  X, ChevronDown, Globe, Lock, ChevronsRight, Loader2, Check, Upload,
+  Share2, Bookmark, RefreshCw, Sparkles,
+} from 'lucide-react';
 import FwdLogo from '@/components/FwdLogo';
 import UploadDropzone from '@/components/UploadDropzone';
-import { CATEGORIES, GIFS } from '@/data/gifs';
-import { useAppContext } from '@/contexts/AppContext';
+import { CATEGORIES, MOODS } from '@/data/gifs';
+import { useAppContext, Gif } from '@/contexts/AppContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
 import { toast } from '@/components/ui/use-toast';
-
+import FwdAnimatedGif from '@/components/FwdAnimatedGif';
+import { categorizeGif, GifCategorization } from '@/lib/aiCategorizer';
 
 const TOOLS = [
   { id: 'trim', icon: Scissors, label: 'Trim' },
@@ -22,70 +28,238 @@ const FILTERS = ['None', 'Neon', 'Cyber', 'Glow', 'Retro', 'Vapor'];
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 const STICKERS = ['💯', '🔥', '✨', '👀', '😎', '💀', '🚀', '💜'];
 
+type CreationState =
+  | 'idle' | 'camera_ready' | 'recording' | 'processing' | 'preview' | 'file_selected' | 'editing'
+  | 'generating' | 'uploading' | 'saved' | 'posted' | 'error';
+
+const MAX_RECORD_SECONDS = 10;
+
+const getRecorderMimeType = () => {
+  if (typeof MediaRecorder === 'undefined') return '';
+  return ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4']
+    .find((type) => MediaRecorder.isTypeSupported(type)) || '';
+};
+
 const CreateGif: React.FC = () => {
   const nav = useNavigate();
   const loc = useLocation();
-  const { createUserGif } = useAppContext();
+  const { createUserGif, createPost } = useAppContext();
+  const { user } = useAuth();
   const searchParams = useMemo(() => new URLSearchParams(loc.search), [loc.search]);
   const state = (loc.state as any) || {};
   const queryMediaUrl = searchParams.get('mediaUrl') || '';
   const queryMediaType = searchParams.get('type') || '';
-  const initialImage = queryMediaUrl || state.image || GIFS[0].image;
+  const initialImage = queryMediaUrl || state.image || '';
   const initialMediaType = state.mediaType || (queryMediaType === 'camera' ? 'video/webm' : '');
 
   const [tool, setTool] = useState('trim');
-  const [title, setTitle] = useState('Vibes Only');
-  const [tags, setTags] = useState<string[]>(['vibes', 'neon', 'night', 'city', 'cool']);
+  const [title, setTitle] = useState(state.title || '');
+  const [caption, setCaption] = useState('');
+  const [tags, setTags] = useState<string[]>(
+    Array.isArray(state.tags) && state.tags.length ? state.tags.slice(0, 8) : []
+  );
   const [tagInput, setTagInput] = useState('');
   const [category, setCategory] = useState('Reactions');
+  const [mood, setMood] = useState('Cool');
   const [isPublic, setIsPublic] = useState(true);
+  const [allowReuse, setAllowReuse] = useState(true);
+  const [allowDownload, setAllowDownload] = useState(true);
   const [speed, setSpeed] = useState(1);
   const [filter, setFilter] = useState('None');
   const [textOverlay, setTextOverlay] = useState('');
   const [stickerOverlay, setStickerOverlay] = useState<string | null>(null);
-  const [trim, setTrim] = useState({ start: 1, end: 4 });
-  const [image, setImage] = useState(initialImage);
+  const [trim, setTrim] = useState({ start: 0, end: 3 });
+  const [previewUrl, setPreviewUrl] = useState(initialImage);
   const [mediaType, setMediaType] = useState(initialMediaType);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [uploadedFromVault, setUploadedFromVault] = useState(Boolean(queryMediaUrl));
-  const [saving, setSaving] = useState(false);
+  const [creationState, setCreationState] = useState<CreationState>(
+    queryMediaUrl || state.image ? 'file_selected' : 'idle'
+  );
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const [savedGif, setSavedGif] = useState<Gif | null>(null);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiHint, setAiHint] = useState('');
+  const [aiApplied, setAiApplied] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraVideoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const stopTimerRef = useRef<number | null>(null);
+
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach(track => track.stop());
+    streamRef.current = null;
+    if (stopTimerRef.current) window.clearTimeout(stopTimerRef.current);
+    stopTimerRef.current = null;
+  }, []);
+
+  useEffect(() => () => {
+    stopCamera();
+    if (previewUrl?.startsWith('blob:')) URL.revokeObjectURL(previewUrl);
+  }, [previewUrl, stopCamera]);
+
+  useEffect(() => {
+    if (creationState !== 'recording') return;
+    const interval = window.setInterval(() => {
+      setRecordSeconds((value) => Math.min(MAX_RECORD_SECONDS, value + 1));
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [creationState]);
+
+  const startCamera = async () => {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setCreationState('error');
+      setErrorMsg('This browser cannot record video here. Upload a clip instead.');
+      return;
+    }
+    try {
+      stopCamera();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'user' } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (cameraVideoRef.current) {
+        cameraVideoRef.current.srcObject = stream;
+        await cameraVideoRef.current.play();
+      }
+      setCreationState('camera_ready');
+      setErrorMsg('');
+    } catch {
+      setCreationState('error');
+      setErrorMsg('Camera access is off. Enable it or upload a clip from your device.');
+    }
+  };
+
+  const stopRecording = useCallback(() => {
+    const recorder = recorderRef.current;
+    if (stopTimerRef.current) window.clearTimeout(stopTimerRef.current);
+    stopTimerRef.current = null;
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
+  }, []);
+
+  const startRecording = () => {
+    if (!streamRef.current || creationState !== 'camera_ready') return;
+    try {
+      chunksRef.current = [];
+      const mimeType = getRecorderMimeType();
+      const recorder = new MediaRecorder(streamRef.current, mimeType ? { mimeType } : undefined);
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        setCreationState('processing');
+        const type = mimeType || chunksRef.current[0]?.type || 'video/webm';
+        const blob = new Blob(chunksRef.current, { type });
+        const file = new File([blob], `recorded-fwd-${Date.now()}.webm`, { type });
+        const url = URL.createObjectURL(blob);
+        stopCamera();
+        if (previewUrl?.startsWith('blob:')) URL.revokeObjectURL(previewUrl);
+        setPreviewUrl(url);
+        setUploadedFile(file);
+        setMediaType(type);
+        setUploadedFromVault(true);
+        setTrim({ start: 0, end: Math.min(MAX_RECORD_SECONDS, Math.max(1, recordSeconds || MAX_RECORD_SECONDS)) });
+        if (!title.trim()) setTitle('My FWD');
+        setCreationState('preview');
+      };
+      setRecordSeconds(0);
+      recorder.start();
+      setCreationState('recording');
+      stopTimerRef.current = window.setTimeout(stopRecording, MAX_RECORD_SECONDS * 1000);
+    } catch {
+      setCreationState('error');
+      setErrorMsg('Recording failed. Try again or upload a clip.');
+    }
+  };
+
+  const resetToBlankRecorder = () => {
+    stopCamera();
+    if (previewUrl?.startsWith('blob:')) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl('');
+    setUploadedFile(null);
+    setMediaType('');
+    setTitle('');
+    setCaption('');
+    setTags([]);
+    setMood('Cool');
+    setCategory('Reactions');
+    setRecordSeconds(0);
+    setAiApplied(false);
+    setAiHint('');
+    setCreationState('idle');
+  };
 
   const addTag = () => {
     const t = tagInput.trim().toLowerCase();
-    if (t && !tags.includes(t)) setTags([...tags, t]);
+    if (t && !tags.includes(t) && tags.length < 10) setTags([...tags, t]);
     setTagInput('');
   };
 
-  const handleUploaded = (publicUrl: string, file: File) => {
-    setImage(publicUrl);
+  const applyAiMetadata = useCallback((metadata: GifCategorization, forceTitle = false) => {
+    if (metadata.title && (forceTitle || !title.trim() || title === 'My FWD')) setTitle(metadata.title);
+    if (metadata.category) setCategory(metadata.category);
+    if (metadata.mood) setMood(metadata.mood);
+    setTags(prev => Array.from(new Set([...(metadata.tags || []), ...prev])).slice(0, 10));
+    if (metadata.caption && !caption.trim()) setCaption(metadata.caption);
+    setAiApplied(true);
+    setAiHint(`${metadata.category} · ${metadata.mood} · ${Math.round(metadata.confidence * 100)}% match`);
+  }, [caption, title]);
+
+  const suggestMetadata = useCallback(async (sourceOverride?: string, forceTitle = false) => {
+    setAiBusy(true);
+    setAiHint('');
+    try {
+      const metadata = await categorizeGif({
+        title,
+        caption,
+        tags,
+        category,
+        mood,
+        sourceUrl: sourceOverride || (previewUrl?.startsWith('http') ? previewUrl : ''),
+      });
+      applyAiMetadata(metadata, forceTitle);
+      return metadata;
+    } catch {
+      return null;
+    } finally {
+      setAiBusy(false);
+    }
+  }, [applyAiMetadata, caption, category, mood, previewUrl, tags, title]);
+
+  const handleUploaded = useCallback((publicUrl: string, file: File) => {
+    setPreviewUrl(publicUrl);
     setMediaType(file.type);
+    setUploadedFile(file);
     setUploadedFromVault(true);
-    // Pre-fill a friendlier title from filename if user hasn't customized
-    if (title === 'Vibes Only') {
+    setCreationState('file_selected');
+    setAiApplied(false);
+    setAiHint('');
+    if (!title.trim()) {
       const base = file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').slice(0, 60);
       if (base) setTitle(base);
     }
-  };
-
-  const create = async () => {
-    if (!title.trim()) { toast({ title: 'Title required', description: 'Give your GIF a name first.' }); return; }
-    setSaving(true);
-    const created = await createUserGif({
-      title: title.trim(),
-      image,
-      tags,
-      category,
-      mood: undefined,
-      isPublic,
-    });
-    setSaving(false);
-    if (created) {
-      toast({ title: 'GIF created', description: `"${title}" is ready to forward.` });
-      setTimeout(() => nav('/profile'), 400);
-    } else {
-      toast({ title: 'Could not save', description: 'Make sure you are signed in and try again.' });
+    if (publicUrl.startsWith('http')) {
+      window.setTimeout(() => {
+        suggestMetadata(publicUrl).then((metadata) => {
+          if (metadata) toast({ title: 'AI categorized this FWD', description: `${metadata.category} · ${metadata.mood}` });
+        });
+      }, 0);
     }
-  };
+  }, [suggestMetadata, title]);
 
+  const handleDirectFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    handleUploaded(url, file);
+  };
 
   const filterStyle = (() => {
     switch (filter) {
@@ -97,6 +271,174 @@ const CreateGif: React.FC = () => {
       default: return '';
     }
   })();
+
+  const isVideo = mediaType?.startsWith('video/') || previewUrl.includes('.webm') || previewUrl.includes('.mp4');
+
+  const create = async () => {
+    if (!previewUrl) {
+      toast({ title: 'Record a FWD first', description: 'Record up to 10 seconds or upload a clip.' });
+      return;
+    }
+    if (!user) {
+      toast({ title: 'Sign in required', description: 'Sign in to save GIFs to your library.', variant: 'destructive' });
+      return;
+    }
+
+    setCreationState('generating');
+    setProgress(0);
+    setErrorMsg('');
+
+    let gifBlob: Blob | null = null;
+    let gifUrl = previewUrl;
+
+    try {
+      // Decide encoding path
+      if (uploadedFile) {
+        if (uploadedFile.type === 'image/gif') {
+          // Already a GIF — upload directly
+          gifBlob = uploadedFile;
+        } else if (uploadedFile.type.startsWith('video/')) {
+          // Video → encode to GIF
+          setProgress(5);
+          const { videoFileToGif } = await import('@/lib/gifEncoder');
+          gifBlob = await videoFileToGif(uploadedFile, {
+            width: 360,
+            height: 360,
+            fps: 10,
+            startSec: trim.start,
+            endSec: Math.min(trim.end, trim.start + MAX_RECORD_SECONDS),
+            onProgress: (pct) => setProgress(5 + Math.round(pct * 0.7)),
+          });
+        } else if (uploadedFile.type.startsWith('image/')) {
+          // Static image → single-frame GIF
+          const { imageFileToGif } = await import('@/lib/gifEncoder');
+          gifBlob = await imageFileToGif(uploadedFile, { width: 320, height: 320 });
+        }
+      }
+
+      // Upload to Supabase storage
+      if (gifBlob) {
+        setCreationState('uploading');
+        setProgress(78);
+        const ext = 'gif';
+        const path = `${user.id}/${Date.now()}.${ext}`;
+        const { data: storageData, error: storageErr } = await supabase.storage
+          .from('fwd-uploads')
+          .upload(path, gifBlob, { contentType: 'image/gif', upsert: false });
+
+        if (storageErr) throw new Error(storageErr.message);
+
+        const { data: publicUrlData } = supabase.storage.from('fwd-uploads').getPublicUrl(storageData.path);
+        gifUrl = publicUrlData.publicUrl;
+        setPreviewUrl(gifUrl);
+        setProgress(90);
+      }
+
+      const aiMetadata = !aiApplied && gifUrl.startsWith('http')
+        ? await suggestMetadata(gifUrl)
+        : null;
+      const finalTitle = (aiMetadata?.title || title).trim() || 'My FWD';
+      const finalCaption = (aiMetadata?.caption || caption).trim();
+      const finalTags = Array.from(new Set([...(aiMetadata?.tags || []), ...tags])).slice(0, 10);
+      const finalCategory = aiMetadata?.category || category;
+      const finalMood = aiMetadata?.mood || mood;
+
+      // Save to fwd_gifs
+      const created = await createUserGif({
+        title: finalTitle,
+        image: gifUrl,
+        caption: finalCaption || undefined,
+        tags: finalTags,
+        category: finalCategory,
+        mood: finalMood,
+        isPublic,
+        allow_reuse: allowReuse,
+        allow_download: allowDownload,
+        source_type: uploadedFile ? (uploadedFile.type === 'image/gif' ? 'uploaded' : 'created') : 'external',
+        file_size_bytes: gifBlob?.size,
+      });
+
+      setProgress(100);
+
+      if (created) {
+        setSavedGif(created);
+        setCreationState('saved');
+        toast({ title: 'GIF created', description: `"${finalTitle}" saved to your library.` });
+      } else {
+        throw new Error('Could not save GIF to your library.');
+      }
+    } catch (err: any) {
+      setCreationState('error');
+      setErrorMsg(err?.message || 'Something went wrong. Please try again.');
+      toast({ title: 'Creation failed', description: err?.message || 'Try again.', variant: 'destructive' });
+    }
+  };
+
+  const postToFeed = async () => {
+    if (!savedGif) return;
+    setCreationState('uploading');
+    const post = await createPost(savedGif.id, caption);
+    if (post) {
+      setCreationState('posted');
+      toast({ title: 'Posted to feed', description: 'Your GIF is live on the FWD feed.' });
+      setTimeout(() => nav('/feed'), 800);
+    } else {
+      toast({ title: 'Post failed', description: 'Could not post to feed. Try again.', variant: 'destructive' });
+      setCreationState('saved');
+    }
+  };
+
+  // --- Saved / Posted state UI ---
+  if (creationState === 'saved' || creationState === 'posted') {
+    return (
+      <div className="min-h-screen pb-10 flex flex-col items-center justify-center px-4">
+        <div className="w-full max-w-md glass-strong rounded-3xl border border-fuchsia-500/40 neon-glow-purple p-6 text-center">
+          <div className="w-16 h-16 mx-auto rounded-full bg-fuchsia-500/10 border border-fuchsia-500/40 flex items-center justify-center mb-4">
+            <Check size={28} className="text-fuchsia-400" />
+          </div>
+          <h2 className="text-2xl font-black text-white mb-1">GIF Created!</h2>
+          <p className="text-zinc-400 text-sm mb-5">"{title}" is ready to forward.</p>
+
+          {savedGif && (
+            <div className="rounded-2xl overflow-hidden border border-fuchsia-500/30 aspect-square max-w-[220px] mx-auto mb-6">
+              <FwdAnimatedGif
+                gifUrl={savedGif.image}
+                title={savedGif.title}
+                className="w-full h-full object-contain bg-black/60"
+                lazy={false}
+              />
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <button
+              onClick={postToFeed}
+              disabled={creationState === 'posted'}
+              className="flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-fuchsia-600 to-pink-500 text-white font-bold neon-glow-pink disabled:opacity-60"
+            >
+              <Share2 size={16} /> Post to Feed
+            </button>
+            <button
+              onClick={() => nav('/profile')}
+              className="flex items-center justify-center gap-2 py-3 rounded-xl glass border border-fuchsia-500/30 text-white font-semibold"
+            >
+              <Bookmark size={16} /> My Library
+            </button>
+          </div>
+          <button
+            onClick={() => {
+              setCreationState('idle');
+      resetToBlankRecorder();
+      setSavedGif(null);
+            }}
+            className="w-full py-3 rounded-xl glass border border-white/10 text-zinc-300 font-semibold flex items-center justify-center gap-2"
+          >
+            <RefreshCw size={15} /> Create Another
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen pb-10">
@@ -113,29 +455,102 @@ const CreateGif: React.FC = () => {
         </div>
 
         <div className="text-center mb-4">
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-widest">CREATE GIF</h1>
-          <p className="text-zinc-400 text-sm sm:text-base">Turn your moment into a loop.</p>
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-widest">Record a FWD</h1>
+          <p className="text-zinc-400 text-sm sm:text-base">Record up to 10 seconds and turn your moment into a FWD.</p>
         </div>
 
+        {!previewUrl && (
+          <div className="glass-strong rounded-3xl border border-fuchsia-500/30 neon-glow-purple overflow-hidden mb-5">
+            <div className="relative aspect-[9/14] sm:aspect-video bg-black/70 flex items-center justify-center">
+              {(creationState === 'camera_ready' || creationState === 'recording') ? (
+                <video ref={cameraVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
+              ) : (
+                <div className="text-center px-6">
+                  <div className="w-16 h-16 mx-auto rounded-full bg-fuchsia-500/10 border border-fuchsia-500/30 flex items-center justify-center mb-4">
+                    <Camera size={28} className="text-fuchsia-300" />
+                  </div>
+                  <h2 className="text-2xl font-black text-white">Record a FWD</h2>
+                  <p className="text-zinc-400 text-sm mt-2">10 seconds max. Turn this into a GIF.</p>
+                </div>
+              )}
+              {creationState === 'recording' && (
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 glass-strong rounded-full px-4 py-1.5 border border-red-400/40 flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+                  <span className="text-white font-mono text-sm">00:{String(recordSeconds).padStart(2, '0')}</span>
+                  <span className="text-zinc-500 text-xs">/ 00:10</span>
+                </div>
+              )}
+            </div>
+            <div className="p-4 grid grid-cols-2 gap-3">
+              {creationState === 'camera_ready' ? (
+                <button onClick={startRecording} className="col-span-2 py-4 rounded-2xl bg-gradient-to-r from-fuchsia-600 via-pink-500 to-cyan-500 text-white font-black neon-glow-purple">
+                  Tap to record
+                </button>
+              ) : creationState === 'recording' ? (
+                <button onClick={stopRecording} className="col-span-2 py-4 rounded-2xl bg-red-500 text-white font-black neon-glow-pink">
+                  Stop recording
+                </button>
+              ) : (
+                <button onClick={startCamera} className="col-span-2 py-4 rounded-2xl bg-gradient-to-r from-fuchsia-600 via-pink-500 to-cyan-500 text-white font-black neon-glow-purple">
+                  Turn this into a GIF
+                </button>
+              )}
+              <button onClick={() => fileInputRef.current?.click()} className="col-span-2 glass rounded-xl py-3 border border-white/10 text-white font-semibold">
+                Upload instead
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Upload zone */}
-        <UploadDropzone onUploaded={handleUploaded} currentPreview={!uploadedFromVault ? image : undefined} />
+        {previewUrl && <UploadDropzone onUploaded={handleUploaded} currentPreview={!uploadedFromVault ? previewUrl : undefined} />}
 
-        {/* Camera shortcut */}
-        <button onClick={() => nav('/camera')} className="w-full mb-4 glass-strong rounded-xl py-2.5 px-3 border border-cyan-500/30 flex items-center justify-center gap-2 text-sm font-semibold text-white">
-          <Camera size={16} className="text-cyan-400" /> Record with camera instead
-        </button>
-
+        {/* Or: direct file pick */}
+        <div className="flex gap-2 mb-4">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex-1 glass-strong rounded-xl py-2.5 px-3 border border-fuchsia-500/30 flex items-center justify-center gap-2 text-sm font-semibold text-white"
+          >
+            <Upload size={16} className="text-fuchsia-400" /> Choose file
+          </button>
+          <button
+            onClick={() => nav('/camera')}
+            className="flex-1 glass-strong rounded-xl py-2.5 px-3 border border-cyan-500/30 flex items-center justify-center gap-2 text-sm font-semibold text-white"
+          >
+            <Camera size={16} className="text-cyan-400" /> Record
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/gif,image/*,video/*"
+            className="hidden"
+            onChange={handleDirectFile}
+          />
+        </div>
 
         {/* Preview */}
+        {previewUrl && (
         <div className="relative rounded-2xl overflow-hidden border border-fuchsia-500/40 neon-glow-purple aspect-square sm:aspect-video lg:aspect-square max-w-lg mx-auto mb-3">
-          {mediaType?.startsWith('video/') || image.includes('.webm') || image.includes('.mp4') ? (
-            <video src={image} muted autoPlay loop playsInline className={`w-full h-full object-cover ${filterStyle}`} style={{ animationDuration: `${3 / speed}s` }} />
+          {isVideo ? (
+            <video
+              src={previewUrl}
+              muted autoPlay loop playsInline
+              className={`w-full h-full object-contain bg-black/80 ${filterStyle}`}
+            />
           ) : (
-            <img src={image} alt="preview" className={`w-full h-full object-cover ${filterStyle}`} style={{ animationDuration: `${3 / speed}s` }} />
+            <FwdAnimatedGif
+              gifUrl={previewUrl}
+              title={title}
+              className={`w-full h-full object-contain bg-black/80 ${filterStyle}`}
+              lazy={false}
+            />
           )}
-          <span className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/60 text-[10px] font-bold text-white border border-white/10">1:1</span>
+          <span className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/60 text-[10px] font-bold text-white border border-white/10">
+            {isVideo ? 'VIDEO → GIF' : 'GIF'}
+          </span>
           {textOverlay && (
-            <div className="absolute inset-x-0 top-1/3 text-center text-2xl font-black text-white px-4" style={{ textShadow: '0 0 12px rgba(255,0,107,0.9), 0 0 24px rgba(176,38,255,0.8)' }}>
+            <div className="absolute inset-x-0 top-1/3 text-center text-2xl font-black text-white px-4"
+              style={{ textShadow: '0 0 12px rgba(255,0,107,0.9), 0 0 24px rgba(176,38,255,0.8)' }}>
               {textOverlay}
             </div>
           )}
@@ -145,37 +560,46 @@ const CreateGif: React.FC = () => {
           <button className="absolute bottom-2 left-2 w-9 h-9 rounded-full bg-black/60 backdrop-blur flex items-center justify-center border border-white/15">
             <Play size={14} className="text-white ml-0.5" />
           </button>
-          <span className="absolute bottom-2 right-2 px-2.5 py-1 rounded-md bg-black/60 text-[11px] font-mono text-white border border-white/15">
-            00:0{Math.min(trim.end - trim.start, 5)} / 00:05
-          </span>
+          {isVideo && (
+            <span className="absolute bottom-2 right-2 px-2.5 py-1 rounded-md bg-black/60 text-[11px] font-mono text-white border border-white/15">
+              00:0{Math.max(trim.end - trim.start, 1)}s
+            </span>
+          )}
         </div>
+        )}
 
-        {/* Timeline */}
-        <div className="glass-strong rounded-2xl p-3 border border-fuchsia-500/20 mb-4">
-          <div className="relative h-14 rounded-xl overflow-hidden bg-black/40">
-            <div className="absolute inset-0 flex">
-              {Array.from({ length: 8 }).map((_, i) => (
-                mediaType?.startsWith('video/') || image.includes('.webm') || image.includes('.mp4') ? (
-                  <video key={i} src={image} muted playsInline className="h-full w-1/8 object-cover opacity-60" style={{ width: '12.5%' }} />
-                ) : (
-                  <img key={i} src={image} className="h-full w-1/8 object-cover opacity-60" style={{ width: '12.5%' }} />
-                )
-              ))}
+        {/* Timeline (video only) */}
+        {previewUrl && isVideo && (
+          <div className="glass-strong rounded-2xl p-3 border border-fuchsia-500/20 mb-4">
+            <p className="text-xs uppercase tracking-wider text-zinc-400 mb-1">Trim (max 10s)</p>
+            <div className="relative h-14 rounded-xl overflow-hidden bg-black/40 mb-2">
+              <div className="absolute inset-0 flex">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <video key={i} src={previewUrl} muted playsInline className="h-full object-cover opacity-60" style={{ width: '12.5%' }} />
+                ))}
+              </div>
+              <div className="absolute top-0 bottom-0 border-2 border-fuchsia-500 rounded-lg"
+                style={{ left: `${trim.start * 16.6}%`, right: `${100 - trim.end * 16.6}%`, boxShadow: '0 0 20px rgba(176,38,255,0.8)' }}>
+                <div className="absolute -left-1 top-0 bottom-0 w-2 bg-fuchsia-500 rounded-l" />
+                <div className="absolute -right-1 top-0 bottom-0 w-2 bg-cyan-400 rounded-r" />
+              </div>
             </div>
-            <div className="absolute top-0 bottom-0 border-2 border-fuchsia-500 rounded-lg"
-              style={{ left: `${trim.start * 20}%`, right: `${100 - trim.end * 20}%`, boxShadow: '0 0 20px rgba(176,38,255,0.8)' }}>
-              <div className="absolute -left-1 top-0 bottom-0 w-2 bg-fuchsia-500 rounded-l" />
-              <div className="absolute -right-1 top-0 bottom-0 w-2 bg-cyan-400 rounded-r" />
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] text-zinc-500 mb-0.5 block">Start: {trim.start}s</label>
+                <input type="range" min={0} max={9.5} step={0.5} value={trim.start}
+                  onChange={(e) => setTrim(t => ({ ...t, start: Math.min(+e.target.value, t.end - 0.5) }))}
+                  className="w-full accent-fuchsia-500" />
+              </div>
+              <div>
+                <label className="text-[10px] text-zinc-500 mb-0.5 block">End: {trim.end}s</label>
+                <input type="range" min={0.5} max={10} step={0.5} value={trim.end}
+                  onChange={(e) => setTrim(t => ({ ...t, end: Math.max(+e.target.value, t.start + 0.5) }))}
+                  className="w-full accent-cyan-400" />
+              </div>
             </div>
           </div>
-          <div className="flex items-center justify-between mt-2 text-[10px] text-zinc-500 font-mono">
-            <span>00:00</span><span>00:0{trim.end - trim.start}</span><span>00:05</span>
-          </div>
-          <div className="grid grid-cols-2 gap-2 mt-2">
-            <input type="range" min={0} max={4} value={trim.start} onChange={(e) => setTrim({ ...trim, start: +e.target.value })} className="accent-fuchsia-500" />
-            <input type="range" min={1} max={5} value={trim.end} onChange={(e) => setTrim({ ...trim, end: +e.target.value })} className="accent-cyan-400" />
-          </div>
-        </div>
+        )}
 
         {/* Tools */}
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3 mb-4">
@@ -194,7 +618,6 @@ const CreateGif: React.FC = () => {
           })}
         </div>
 
-        {/* Tool panels */}
         {tool === 'text' && (
           <div className="glass-strong rounded-2xl p-3 border border-fuchsia-500/20 mb-4">
             <p className="text-xs uppercase tracking-wider text-zinc-400 mb-2">Text Overlay</p>
@@ -230,7 +653,7 @@ const CreateGif: React.FC = () => {
         )}
         {tool === 'filters' && (
           <div className="glass-strong rounded-2xl p-3 border border-fuchsia-500/20 mb-4">
-            <p className="text-xs uppercase tracking-wider text-zinc-400 mb-2">Filters / Effects</p>
+            <p className="text-xs uppercase tracking-wider text-zinc-400 mb-2">Filters</p>
             <div className="flex flex-wrap gap-2">
               {FILTERS.map(f => (
                 <button key={f} onClick={() => setFilter(f)}
@@ -257,14 +680,43 @@ const CreateGif: React.FC = () => {
           <div className="text-xs uppercase tracking-wider text-zinc-400 mb-1">Title</div>
           <div className="flex items-center justify-between">
             <input value={title} onChange={(e) => setTitle(e.target.value.slice(0, 60))}
-              className="flex-1 bg-transparent outline-none text-white text-lg font-bold" />
+              className="flex-1 bg-transparent outline-none text-white text-lg font-bold" placeholder="Name your GIF…" />
             <span className="text-xs text-zinc-500 font-mono">{title.length}/60</span>
           </div>
         </div>
 
+        {/* Caption */}
+        <div className="glass-strong rounded-2xl p-4 border border-fuchsia-500/20 mb-3">
+          <div className="text-xs uppercase tracking-wider text-zinc-400 mb-1">Caption <span className="text-zinc-600 normal-case">(optional)</span></div>
+          <textarea
+            value={caption}
+            onChange={(e) => setCaption(e.target.value.slice(0, 200))}
+            placeholder="Add a caption for when you post this…"
+            rows={2}
+            className="w-full bg-transparent outline-none text-white text-sm resize-none"
+          />
+          <div className="text-right text-xs text-zinc-600 font-mono">{caption.length}/200</div>
+        </div>
+
         {/* Tags */}
         <div className="glass-strong rounded-2xl p-4 border border-fuchsia-500/20 mb-3">
-          <div className="text-xs uppercase tracking-wider text-zinc-400 mb-2">Tags</div>
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <div>
+              <div className="text-xs uppercase tracking-wider text-zinc-400">Tags</div>
+              {aiHint && <div className="text-[11px] text-cyan-300 mt-0.5">{aiHint}</div>}
+            </div>
+            <button
+              onClick={() => suggestMetadata(undefined, true).then((metadata) => {
+                if (metadata) toast({ title: 'AI categorized this FWD', description: `${metadata.category} · ${metadata.mood}` });
+                else toast({ title: 'AI categorize failed', description: 'Try again after upload or save normally.', variant: 'destructive' });
+              })}
+              disabled={aiBusy || !previewUrl}
+              className="shrink-0 inline-flex items-center gap-1.5 rounded-xl border border-cyan-500/35 px-3 py-2 text-xs font-bold text-cyan-200 glass disabled:opacity-50"
+            >
+              {aiBusy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+              AI Sort
+            </button>
+          </div>
           <div className="flex flex-wrap gap-2 mb-2">
             {tags.map(t => (
               <span key={t} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full glass border border-fuchsia-500/30 text-sm text-zinc-200">
@@ -279,13 +731,22 @@ const CreateGif: React.FC = () => {
           </div>
         </div>
 
-        {/* Category + visibility */}
-        <div className="grid grid-cols-2 gap-2 mb-5">
+        {/* Category + mood + visibility */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
           <div className="glass-strong rounded-2xl p-3 border border-fuchsia-500/20">
             <div className="text-[10px] uppercase tracking-wider text-zinc-400 mb-1">Category</div>
             <div className="relative">
               <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full bg-transparent outline-none text-white text-sm font-semibold appearance-none pr-6">
                 {CATEGORIES.map(c => <option key={c} className="bg-zinc-900">{c}</option>)}
+              </select>
+              <ChevronDown size={14} className="absolute right-0 top-1.5 text-zinc-400 pointer-events-none" />
+            </div>
+          </div>
+          <div className="glass-strong rounded-2xl p-3 border border-fuchsia-500/20">
+            <div className="text-[10px] uppercase tracking-wider text-zinc-400 mb-1">Mood</div>
+            <div className="relative">
+              <select value={mood} onChange={(e) => setMood(e.target.value)} className="w-full bg-transparent outline-none text-white text-sm font-semibold appearance-none pr-6">
+                {MOODS.map(m => <option key={m.name} className="bg-zinc-900">{m.name}</option>)}
               </select>
               <ChevronDown size={14} className="absolute right-0 top-1.5 text-zinc-400 pointer-events-none" />
             </div>
@@ -303,11 +764,63 @@ const CreateGif: React.FC = () => {
           </button>
         </div>
 
-        <button onClick={create} disabled={saving}
-          className="w-full py-4 rounded-2xl bg-gradient-to-r from-fuchsia-600 via-pink-500 to-cyan-500 text-white text-lg font-black tracking-widest neon-glow-purple flex items-center justify-center gap-2 hover:scale-[1.02] transition disabled:opacity-70">
-          {saving ? <><Loader2 size={20} className="animate-spin" /> SAVING…</> : <>CREATE GIF <ChevronsRight size={22} /></>}
-        </button>
+        {/* Allow reuse + download */}
+        <div className="grid grid-cols-2 gap-2 mb-5">
+          <button onClick={() => setAllowReuse(!allowReuse)} className="glass-strong rounded-2xl p-3 border border-fuchsia-500/20 flex items-center justify-between">
+            <div className="text-left">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-400">Allow Reuse</div>
+              <div className="text-white text-sm font-semibold">{allowReuse ? 'On' : 'Off'}</div>
+            </div>
+            <div className={`w-10 h-6 rounded-full p-0.5 transition ${allowReuse ? 'bg-fuchsia-500' : 'bg-zinc-700'}`}>
+              <div className={`w-5 h-5 rounded-full bg-white transition ${allowReuse ? 'translate-x-4' : ''}`} />
+            </div>
+          </button>
+          <button onClick={() => setAllowDownload(!allowDownload)} className="glass-strong rounded-2xl p-3 border border-fuchsia-500/20 flex items-center justify-between">
+            <div className="text-left">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-400">Allow Download</div>
+              <div className="text-white text-sm font-semibold">{allowDownload ? 'On' : 'Off'}</div>
+            </div>
+            <div className={`w-10 h-6 rounded-full p-0.5 transition ${allowDownload ? 'bg-fuchsia-500' : 'bg-zinc-700'}`}>
+              <div className={`w-5 h-5 rounded-full bg-white transition ${allowDownload ? 'translate-x-4' : ''}`} />
+            </div>
+          </button>
+        </div>
 
+        {/* Error */}
+        {creationState === 'error' && (
+          <div className="glass-strong rounded-2xl p-3 border border-pink-500/40 mb-4 text-pink-400 text-sm">
+            {errorMsg || 'Something went wrong. Please try again.'}
+          </div>
+        )}
+
+        {/* Progress */}
+        {(creationState === 'generating' || creationState === 'uploading') && (
+          <div className="glass-strong rounded-2xl p-4 border border-fuchsia-500/20 mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm text-zinc-300 font-semibold">
+                {creationState === 'generating' ? 'Encoding GIF…' : 'Uploading…'}
+              </span>
+              <span className="text-sm text-fuchsia-400 font-mono">{progress}%</span>
+            </div>
+            <div className="h-2 rounded-full bg-zinc-800 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-fuchsia-500 to-cyan-400 transition-all"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {previewUrl && <button
+          onClick={create}
+          disabled={creationState === 'generating' || creationState === 'uploading'}
+          className="w-full py-4 rounded-2xl bg-gradient-to-r from-fuchsia-600 via-pink-500 to-cyan-500 text-white text-lg font-black tracking-widest neon-glow-purple flex items-center justify-center gap-2 hover:scale-[1.02] transition disabled:opacity-70 disabled:scale-100"
+        >
+          {(creationState === 'generating' || creationState === 'uploading')
+            ? <><Loader2 size={20} className="animate-spin" /> {creationState === 'generating' ? 'ENCODING…' : 'UPLOADING…'}</>
+            : <>Save to My Library <ChevronsRight size={22} /></>
+          }
+        </button>}
       </div>
     </div>
   );

@@ -151,6 +151,8 @@ export interface FwdPickerConfig {
   context: FwdPickerContext;
   /** Optional user UID for usage tracking */
   userUid?: string;
+  /** Optional current composer text for predictive GIF recommendations */
+  messageText?: string;
   /** Theme: 'dark' or 'light' */
   theme?: FwdPickerTheme;
   /** Mode: 'compact' or 'full' */

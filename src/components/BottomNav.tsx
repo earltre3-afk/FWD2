@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, Search, Sparkles, User } from 'lucide-react';
+import { Home, Search, Newspaper, User } from 'lucide-react';
 import { FwdMark } from './FwdLogo';
 
 const BottomNav: React.FC = () => {
@@ -8,7 +8,7 @@ const BottomNav: React.FC = () => {
   const loc = useLocation();
   const isActive = (p: string) => loc.pathname === p || loc.pathname.startsWith(p + '/');
 
-  const Item = ({ icon: Icon, label, path }: any) => (
+  const Item = ({ icon: Icon, label, path }: { icon: any; label: string; path: string }) => (
     <button onClick={() => nav(path)} className="flex flex-col items-center gap-1 flex-1 py-1 group">
       <Icon size={22} className={`sm:w-6 sm:h-6 transition-colors ${isActive(path) ? 'text-fuchsia-400' : 'text-zinc-400 group-hover:text-zinc-200'}`}
         style={isActive(path) ? { filter: 'drop-shadow(0 0 8px rgba(217,70,239,0.8))' } : {}} />
@@ -22,12 +22,14 @@ const BottomNav: React.FC = () => {
         <div className="glass-strong rounded-3xl px-2 sm:px-4 py-2 sm:py-3 flex items-center justify-around relative">
           <Item icon={Home} label="Home" path="/home" />
           <Item icon={Search} label="Search" path="/search" />
-          <button onClick={() => nav('/create')} className="relative -mt-8 sm:-mt-10 mx-1">
-            <div className="w-16 h-16 sm:w-18 sm:h-18 md:w-20 md:h-20 rounded-full glass-strong flex items-center justify-center animate-pulse-glow border border-fuchsia-500/60">
-              <FwdMark size={28} className="sm:w-8 sm:h-8" />
-            </div>
+          <button onClick={() => nav('/create')} className="flex-1 flex justify-center translate-x-1">
+            <span className="relative -mt-8 sm:-mt-10 inline-flex">
+              <div className="w-16 h-16 sm:w-18 sm:h-18 md:w-20 md:h-20 rounded-full glass-strong flex items-center justify-center animate-pulse-glow border border-fuchsia-500/60">
+                <FwdMark size={28} className="sm:w-8 sm:h-8" />
+              </div>
+            </span>
           </button>
-          <Item icon={Sparkles} label="Discover" path="/discover" />
+          <Item icon={Newspaper} label="Feed" path="/feed" />
           <Item icon={User} label="Profile" path="/profile" />
         </div>
       </div>

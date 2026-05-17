@@ -3,6 +3,7 @@ import { UserPlus, UserCheck, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/components/ui/use-toast';
+import { useNavigate } from 'react-router-dom';
 
 interface Props {
   targetUserId: string;
@@ -12,6 +13,7 @@ interface Props {
 
 const FollowButton: React.FC<Props> = ({ targetUserId, size = 'sm', className = '' }) => {
   const { user } = useAuth();
+  const nav = useNavigate();
   const [following, setFollowing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
@@ -31,21 +33,28 @@ const FollowButton: React.FC<Props> = ({ targetUserId, size = 'sm', className = 
     return () => { cancel = true; };
   }, [user, targetUserId]);
 
-  if (!user || user.id === targetUserId) return null;
+  if (user?.id === targetUserId) return null;
 
   const toggle = async (e: React.MouseEvent) => {
     e.stopPropagation(); e.preventDefault();
+    if (!user) {
+      toast({ title: 'Sign in to follow', description: 'Create or sign into FWD to build your circle.' });
+      nav('/login');
+      return;
+    }
     if (loading || !ready) return;
     setLoading(true);
     if (following) {
       const { error } = await supabase.from('follows').delete()
         .eq('follower_id', user.id).eq('following_id', targetUserId);
       if (!error) { setFollowing(false); toast({ title: 'Unfollowed' }); }
+      else toast({ title: 'Follow update failed', description: 'Try again in a moment.', variant: 'destructive' });
     } else {
       const { error } = await supabase.from('follows').insert({
         follower_id: user.id, following_id: targetUserId,
       });
       if (!error) { setFollowing(true); toast({ title: 'Added to your FWD Circle' }); }
+      else toast({ title: 'Follow failed', description: 'Try again in a moment.', variant: 'destructive' });
     }
     setLoading(false);
   };
