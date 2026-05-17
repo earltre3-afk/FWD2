@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Heart, Link as LinkIcon, Share2, Flag, Maximize2, Flame, Bell, MessageCircle, Send } from 'lucide-react';
+import { ArrowLeft, Heart, Link as LinkIcon, Share2, Flag, Maximize2, Flame, Bell, MessageCircle, Send, Trash2 } from 'lucide-react';
 import FwdLogo from '@/components/FwdLogo';
 import BottomNav from '@/components/BottomNav';
 import GifCard from '@/components/GifCard';
@@ -15,6 +15,7 @@ interface CommentRow {
   id: string;
   body: string;
   created_at: string;
+  user_id: string;
   profile?: { display_name: string | null; username: string | null; avatar_url: string | null } | null;
 }
 
@@ -75,7 +76,7 @@ const GifDetail: React.FC = () => {
           : Promise.resolve({ data: null }),
         supabase
           .from('gif_comments')
-          .select('id, body, created_at, profile:user_id(display_name, username, avatar_url)')
+          .select('id, body, created_at, user_id, profile:user_id(display_name, username, avatar_url)')
           .eq('gif_id', id)
           .order('created_at', { ascending: true })
           .limit(50),
@@ -149,7 +150,7 @@ const GifDetail: React.FC = () => {
     const { data, error } = await supabase
       .from('gif_comments')
       .insert({ gif_id: gif.id, user_id: user.id, body })
-      .select('id, body, created_at, profile:user_id(display_name, username, avatar_url)')
+      .select('id, body, created_at, user_id, profile:user_id(display_name, username, avatar_url)')
       .single();
     if (error || !data) {
       toast({ title: 'Comment failed', description: error?.message || 'Try again in a moment.', variant: 'destructive' });
@@ -242,15 +243,28 @@ const GifDetail: React.FC = () => {
                   <div className="space-y-3 mb-4">
                     {comments.map((c) => {
                       const name = c.profile?.display_name || c.profile?.username || 'FWD User';
+                      const isOwn = user && (c as any).user_id === user.id;
                       return (
-                        <div key={c.id} className="flex gap-2">
+                        <div key={c.id} className="flex gap-2 group">
                           <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-black text-white shrink-0">
                             {name.charAt(0).toUpperCase()}
                           </div>
-                          <div className="min-w-0">
+                          <div className="min-w-0 flex-1">
                             <p className="text-xs font-bold text-white">{name}</p>
                             <p className="text-sm text-zinc-300 break-words">{c.body}</p>
                           </div>
+                          {isOwn && (
+                            <button
+                              onClick={async () => {
+                                const { error } = await supabase.from('gif_comments').delete().eq('id', c.id);
+                                if (!error) setComments((prev) => prev.filter((x) => x.id !== c.id));
+                              }}
+                              className="opacity-0 group-hover:opacity-100 shrink-0 w-7 h-7 flex items-center justify-center rounded-full hover:bg-red-500/20 transition"
+                              title="Delete comment"
+                            >
+                              <Trash2 size={13} className="text-zinc-500 hover:text-red-400" />
+                            </button>
+                          )}
                         </div>
                       );
                     })}
