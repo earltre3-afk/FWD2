@@ -34,7 +34,11 @@ const GifCard: React.FC<Props> = ({
     else nav(`/gif/${gif.id}`);
   };
 
-  if (dead) return null;
+  if (dead) return (
+    <div className={`relative rounded-xl sm:rounded-2xl overflow-hidden glass border border-white/5 ${tall ? 'aspect-[3/4]' : 'aspect-square'} flex items-center justify-center ${className}`}>
+      <span className="text-[10px] font-mono text-zinc-700 select-none">GIF</span>
+    </div>
+  );
 
   return (
     <div
@@ -42,6 +46,8 @@ const GifCard: React.FC<Props> = ({
       className={`relative group cursor-pointer rounded-xl sm:rounded-2xl overflow-hidden glass-strong border border-fuchsia-500/20 hover:border-fuchsia-500/60 transition-all hover:scale-[1.02] hover:shadow-[0_0_30px_rgba(176,38,255,0.4)] ${tall ? 'aspect-[3/4]' : 'aspect-square'} ${className}`}
     >
       <FwdMediaPlayer
+        mp4Url={gif.mp4_url}
+        webmUrl={gif.webm_url}
         gifUrl={gif.image}
         posterUrl={gif.still_url}
         title={gif.title}

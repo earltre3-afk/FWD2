@@ -196,9 +196,15 @@ export function findGif(id: string) {
 }
 
 export function getGifsByCategory(category: string, limit?: number) {
-  const filtered = category === 'Trending' 
-    ? [...GIFS.filter(g => g.category === 'Trending'), ...GIFS.filter(g => g.category !== 'Trending')].slice(0, 130)
-    : GIFS.filter(g => g.category === category);
+  let filtered: typeof GIFS;
+  if (category === 'Trending') {
+    // Prefer Giphy CDN URLs (media.giphy.com) — Tenor blocks third-party hotlinking
+    const giphy = GIFS.filter(g => g.image.includes('giphy.com'));
+    const rest = GIFS.filter(g => !g.image.includes('giphy.com'));
+    filtered = [...giphy, ...rest].slice(0, 130);
+  } else {
+    filtered = GIFS.filter(g => g.category === category);
+  }
   return limit ? filtered.slice(0, limit) : filtered;
 }
 
