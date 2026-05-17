@@ -550,10 +550,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ? { ...p, like_count: p.like_count + (liked ? -1 : 1), liked_by_me: !liked }
       : p
     ));
-    if (liked) {
-      await supabase.from('fwd_post_likes').delete().eq('post_id', postId).eq('user_id', user.id);
-    } else {
-      await supabase.from('fwd_post_likes').insert({ post_id: postId, user_id: user.id });
+    const { error } = liked
+      ? await supabase.from('fwd_post_likes').delete().eq('post_id', postId).eq('user_id', user.id)
+      : await supabase.from('fwd_post_likes').upsert({ post_id: postId, user_id: user.id }, { onConflict: 'post_id,user_id' });
+
+    if (error) {
+      setLikedPostIds(prev => {
+        const next = new Set(prev);
+        if (liked) next.add(postId);
+        else next.delete(postId);
+        return next;
+      });
+      setFeedPosts(prev => prev.map(p => p.id === postId
+        ? { ...p, like_count: Math.max(0, p.like_count + (liked ? 1 : -1)), liked_by_me: liked }
+        : p
+      ));
     }
   }, [user, likedPostIds]);
 

@@ -4,6 +4,7 @@ import { Bookmark, Play, Share2, Trash2 } from 'lucide-react';
 import { Gif, useAppContext } from '@/contexts/AppContext';
 import FwdMediaPlayer from '@/components/FwdMediaPlayer';
 import { toast } from '@/components/ui/use-toast';
+import { stopActionEvent } from '@/lib/actionEvents';
 
 interface Props {
   gif: Gif;
@@ -32,6 +33,23 @@ const GifCard: React.FC<Props> = ({
   const handleClick = () => {
     if (onClick) onClick(gif);
     else nav(`/gif/${gif.id}`);
+  };
+
+  const shareGif = async () => {
+    const url = `${window.location.origin}/gif/${gif.id}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: gif.title || 'You got a FWD', text: gif.caption || 'Open this FWD.', url });
+      } else {
+        await navigator.clipboard.writeText(url);
+        toast({ title: 'FWD link copied.' });
+      }
+    } catch (error) {
+      const message = `${(error as { name?: string; message?: string }).name || ''} ${(error as { message?: string }).message || ''}`.toLowerCase();
+      if (!message.includes('abort') && !message.includes('cancel')) {
+        toast({ title: 'Share failed', description: 'Couldn’t share or copy this FWD.', variant: 'destructive' });
+      }
+    }
   };
 
   if (dead) return (
@@ -66,7 +84,7 @@ const GifCard: React.FC<Props> = ({
       {!onDelete && (
         <button
           onClick={async (e) => {
-            e.stopPropagation();
+            stopActionEvent(e);
             const res = await toggleFavorite(gif.id, gif);
             if (res && res.needsAuth) {
               toast({ title: 'Sign in to save', description: 'Create or sign into FWD to keep this in My Library.' });
@@ -91,7 +109,7 @@ const GifCard: React.FC<Props> = ({
       {/* Delete (owner only) — occupies the same top-right corner */}
       {onDelete && !confirmDelete && (
         <button
-          onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
+          onClick={(e) => { stopActionEvent(e); setConfirmDelete(true); }}
           className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur flex items-center justify-center border border-white/10 opacity-0 group-hover:opacity-100 transition"
           title="Delete GIF"
         >
@@ -102,20 +120,20 @@ const GifCard: React.FC<Props> = ({
       {/* Delete confirmation */}
       {onDelete && confirmDelete && (
         <div
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => stopActionEvent(e)}
           className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center gap-2 z-10 p-3"
         >
           <p className="text-white text-xs font-bold text-center">Delete this GIF?</p>
           <p className="text-zinc-400 text-[10px] text-center">This can't be undone.</p>
           <div className="flex gap-2 mt-1">
             <button
-              onClick={() => { setConfirmDelete(false); onDelete(); }}
+              onClick={(e) => { stopActionEvent(e); setConfirmDelete(false); onDelete(); }}
               className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-500 transition"
             >
               Delete
             </button>
             <button
-              onClick={() => setConfirmDelete(false)}
+              onClick={(e) => { stopActionEvent(e); setConfirmDelete(false); }}
               className="px-3 py-1.5 rounded-lg glass border border-white/15 text-white text-xs font-bold"
             >
               Cancel
@@ -124,13 +142,20 @@ const GifCard: React.FC<Props> = ({
         </div>
       )}
 
-      <button className="absolute bottom-2 left-2 w-8 h-8 rounded-full bg-black/50 backdrop-blur flex items-center justify-center border border-white/10">
+      <button
+        type="button"
+        onClick={(e) => { stopActionEvent(e); handleClick(); }}
+        className="absolute bottom-2 left-2 w-8 h-8 rounded-full bg-black/50 backdrop-blur flex items-center justify-center border border-white/10"
+        aria-label="Open FWD"
+      >
         <Play size={14} className="text-white ml-0.5" />
       </button>
       {showShare && (
         <button
-          onClick={(e) => e.stopPropagation()}
+          type="button"
+          onClick={(e) => { stopActionEvent(e); shareGif(); }}
           className="absolute bottom-2 right-2 w-8 h-8 rounded-full bg-black/50 backdrop-blur flex items-center justify-center border border-white/10"
+          aria-label="Share FWD"
         >
           <Share2 size={14} className="text-white" />
         </button>

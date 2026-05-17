@@ -8,39 +8,27 @@ export function getFwdShareUrl(postId: string): string {
   return `${FWD_APP_URL}/f/${postId}`;
 }
 
-export type ShareResult = 'native' | 'copied' | 'cancelled' | 'error';
+export type ShareResult = 'native-opened' | 'copied' | 'cancelled' | 'failed';
 
-/**
- * Share a FWD via native Web Share API or clipboard fallback.
- * Never throws — always returns a result code.
- */
-export async function shareFwd(
-  postId: string,
-  opts?: { caption?: string }
-): Promise<ShareResult> {
-  const url = getFwdShareUrl(postId);
-  const title = 'You got a FWD';
-  const text = opts?.caption
-    ? `${opts.caption.slice(0, 120)} — Open it, remix it, or send one back.`
-    : 'Open this FWD, remix it, or send one back.';
+interface ShareFwdItemArgs {
+  id: string;
+  title?: string | null;
+  caption?: string | null;
+  absoluteUrl?: string;
+}
 
-  // Native Web Share API (mobile browsers)
-  if (typeof navigator !== 'undefined' && navigator.share) {
-    try {
-      await navigator.share({ title, text, url });
-      return 'native';
-    } catch (e) {
-      if ((e as DOMException).name === 'AbortError') return 'cancelled';
-      // Fall through to clipboard
-    }
-  }
+const isShareCancellation = (error: unknown): boolean => {
+  const err = error as { name?: string; message?: string };
+  const text = `${err?.name || ''} ${err?.message || ''}`.toLowerCase();
+  return text.includes('abort') || text.includes('cancel');
+};
 
-  // Clipboard fallback
+export async function copyFwdLink(id: string, absoluteUrl?: string): Promise<boolean> {
+  const url = absoluteUrl || getFwdShareUrl(id);
   try {
     await navigator.clipboard.writeText(url);
-    return 'copied';
+    return true;
   } catch {
-    // execCommand fallback for older/restricted browsers
     try {
       const el = document.createElement('textarea');
       el.value = url;
@@ -49,17 +37,50 @@ export async function shareFwd(
       el.select();
       document.execCommand('copy');
       document.body.removeChild(el);
-      return 'copied';
+      return true;
     } catch {
-      return 'error';
+      return false;
     }
   }
 }
 
-/**
- * Record a share event in analytics.
- * Fires and forgets — never blocks the user.
- */
+export async function shareFwdItem({
+  id,
+  title,
+  caption,
+  absoluteUrl,
+}: ShareFwdItemArgs): Promise<ShareResult> {
+  const url = absoluteUrl || getFwdShareUrl(id);
+  const payload = {
+    title: title || 'You got a FWD',
+    text: caption || 'Open this FWD, remix it, or send one back.',
+    url,
+  };
+
+  if (typeof navigator !== 'undefined' && navigator.share) {
+    try {
+      await navigator.share(payload);
+      return 'native-opened';
+    } catch (error) {
+      if (isShareCancellation(error)) return 'cancelled';
+    }
+  }
+
+  return (await copyFwdLink(id, url)) ? 'copied' : 'failed';
+}
+
+export async function shareFwd(
+  postId: string,
+  opts?: { caption?: string }
+): Promise<ShareResult> {
+  return shareFwdItem({
+    id: postId,
+    caption: opts?.caption
+      ? `${opts.caption.slice(0, 120)} - Open it, remix it, or send one back.`
+      : undefined,
+  });
+}
+
 export function recordShare(
   fwdId: string,
   opts?: { sharedBy?: string; channel?: ShareResult }
@@ -75,10 +96,6 @@ export function recordShare(
     .then(() => {/* intentionally ignored */});
 }
 
-/**
- * Record a share link open (called on /f/:id page mount).
- * Fires and forgets — never blocks rendering.
- */
 export function trackShareOpen(
   fwdId: string,
   opts?: { shareToken?: string; openedBy?: string }

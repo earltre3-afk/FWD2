@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Search as SearchIcon, Clock, TrendingUp, X, Sparkles, Bell, Zap, Loader2 } from 'lucide-react';
+import { Search as SearchIcon, Clock, TrendingUp, X, Sparkles, Zap, Loader2 } from 'lucide-react';
 import FwdLogo from '@/components/FwdLogo';
 import BottomNav from '@/components/BottomNav';
 import GifCard from '@/components/GifCard';
@@ -8,6 +8,7 @@ import { TRENDING_SEARCHES } from '@/data/gifs';
 import { useAppContext } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/components/ui/use-toast';
+import NotificationBell from '@/components/NotificationBell';
 import { captureFallbackReaction, reactionAssetToGif, trackReactionSearch } from '@/lib/rapidReactionScout';
 import { useRapidReactionScout } from '@/hooks/useRapidReactionScout';
 import type { ReactionAsset } from '@/types/reactions';
@@ -232,10 +233,7 @@ const SearchPage: React.FC = () => {
         <div className="flex items-center justify-between mb-5">
           <div className="w-9" />
           <FwdLogo size="md" />
-          <button className="w-9 h-9 rounded-full glass flex items-center justify-center relative">
-            <Bell size={18} className="text-fuchsia-400" />
-            <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-pink-500" />
-          </button>
+          <NotificationBell className="w-9 h-9" />
         </div>
 
         <form onSubmit={(e) => { e.preventDefault(); submit(query); }}

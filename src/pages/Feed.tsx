@@ -1,28 +1,33 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Heart, Bookmark, Share2, MoreHorizontal, Zap, Bell,
+  Heart, Bookmark, Share2, MoreHorizontal, Zap,
   MessageCircle, RefreshCw, Download, Loader2, Plus,
+  Flag,
 } from 'lucide-react';
 import FwdLogo from '@/components/FwdLogo';
 import BottomNav from '@/components/BottomNav';
 import FwdMediaPlayer from '@/components/FwdMediaPlayer';
+import FwdLibraryPicker from '@/components/FwdLibraryPicker';
 import { useAppContext, FwdPost, Gif } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/components/ui/use-toast';
 import { shareFwd, recordShare } from '@/lib/fwdShare';
+import { stopActionEvent } from '@/lib/actionEvents';
+import NotificationBell from '@/components/NotificationBell';
+import FwdDownloadSheet from '@/components/fwd-actions/FwdDownloadSheet';
+import FwdReportSheet from '@/components/fwd-actions/FwdReportSheet';
 
-// ---- Post composer (pick a GIF from user library) ----
+// ---- Post composer ----
 const PostComposer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const { userGifs, savedLibrary, createPost } = useAppContext();
+  const { createPost } = useAppContext();
+  const { user } = useAuth();
   const [selected, setSelected] = useState<Gif | null>(null);
   const [caption, setCaption] = useState('');
   const [posting, setPosting] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const nav = useNavigate();
-  const libraryGifs = [...userGifs, ...savedLibrary].filter(
-    (gif, index, all) => gif.image && all.findIndex(item => item.id === gif.id) === index
-  );
 
   const post = async () => {
     if (!selected) return;
@@ -38,92 +43,79 @@ const PostComposer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-md p-4">
-      <div className="w-full max-w-md glass-strong rounded-3xl border border-fuchsia-500/40 p-5">
-        <h3 className="text-lg font-black text-white mb-3">Post a GIF</h3>
+    <>
+      <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-md p-4">
+        <div className="w-full max-w-md glass-strong rounded-3xl border border-fuchsia-500/40 p-5">
+          <h3 className="text-lg font-black text-white mb-1">Post a GIF</h3>
+          <p className="text-xs text-zinc-500 mb-4">Save once. Use anywhere.</p>
 
-        {!selected ? (
-          <>
-            <p className="text-zinc-400 text-sm mb-3">Pick a GIF from your library</p>
-            {libraryGifs.length === 0 ? (
-              <div className="text-center py-8">
-                <p className="text-zinc-500 text-sm mb-3">No GIFs yet.</p>
-                <button
-                  onClick={() => { onClose(); nav('/create'); }}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-fuchsia-600 to-pink-500 text-white font-bold text-sm"
-                >
-                  <Zap size={14} /> Create your first GIF
-                </button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-3 gap-2 max-h-64 overflow-y-auto mb-3">
-                {libraryGifs.map(g => (
-                  <button
-                    key={g.id}
-                    onClick={() => setSelected(g)}
-                    className="relative aspect-square rounded-xl overflow-hidden border-2 border-transparent hover:border-fuchsia-500 transition"
-                  >
-                    <FwdMediaPlayer
-                      mp4Url={g.mp4_url}
-                      webmUrl={g.webm_url}
-                      gifUrl={g.image}
-                      posterUrl={g.still_url}
-                      sourceVideoUrl={g.source_video_url}
-                      mediaType={g.media_type}
-                      isAnimated={g.is_animated}
-                      title={g.title}
-                      className="w-full h-full object-cover"
-                    />
-                  </button>
-                ))}
-              </div>
-            )}
-          </>
-        ) : (
-          <>
-            <div className="aspect-square rounded-2xl overflow-hidden border border-fuchsia-500/30 max-h-56 mx-auto mb-3">
-              <FwdMediaPlayer
-                mp4Url={selected.mp4_url}
-                webmUrl={selected.webm_url}
-                gifUrl={selected.image}
-                posterUrl={selected.still_url}
-                sourceVideoUrl={selected.source_video_url}
-                mediaType={selected.media_type}
-                isAnimated={selected.is_animated}
-                title={selected.title}
-                className="w-full h-full object-contain bg-black/60"
-                objectFit="contain"
-                lazy={false}
-              />
-            </div>
-            <button onClick={() => setSelected(null)} className="text-xs text-zinc-500 mb-3 flex items-center gap-1">
-              <RefreshCw size={12} /> Change GIF
-            </button>
-            <textarea
-              value={caption}
-              onChange={(e) => setCaption(e.target.value.slice(0, 200))}
-              placeholder="Add a caption…"
-              rows={2}
-              className="w-full bg-black/40 border border-fuchsia-500/30 rounded-xl px-4 py-3 text-white text-sm outline-none resize-none mb-3 focus:border-fuchsia-500"
-            />
-          </>
-        )}
-
-        <div className="flex gap-2">
-          <button onClick={onClose} className="flex-1 py-3 rounded-xl glass border border-white/10 text-zinc-300 font-semibold text-sm">Cancel</button>
-          {selected && (
+          {!selected ? (
             <button
-              onClick={post}
-              disabled={posting}
-              className="flex-1 py-3 rounded-xl bg-gradient-to-r from-fuchsia-600 to-pink-500 text-white font-bold text-sm neon-glow-pink disabled:opacity-60 flex items-center justify-center gap-2"
+              onClick={() => user ? setPickerOpen(true) : nav('/login')}
+              className="w-full py-10 rounded-2xl border-2 border-dashed border-fuchsia-500/40 hover:border-fuchsia-500/70 text-center transition mb-3"
             >
-              {posting ? <Loader2 size={15} className="animate-spin" /> : <Share2 size={15} />}
-              {posting ? 'Posting…' : 'Post'}
+              <Zap size={24} className="mx-auto text-fuchsia-400 mb-2" />
+              <p className="text-sm font-bold text-white">Use from Library</p>
+              <p className="text-xs text-zinc-500 mt-0.5">Pick a FWD</p>
             </button>
+          ) : (
+            <>
+              <div className="aspect-square rounded-2xl overflow-hidden border border-fuchsia-500/30 max-h-56 mx-auto mb-3">
+                <FwdMediaPlayer
+                  mp4Url={selected.mp4_url}
+                  webmUrl={selected.webm_url}
+                  gifUrl={selected.image}
+                  posterUrl={selected.still_url}
+                  sourceVideoUrl={selected.source_video_url}
+                  mediaType={selected.media_type}
+                  isAnimated={selected.is_animated}
+                  title={selected.title}
+                  className="w-full h-full object-contain bg-black/60"
+                  objectFit="contain"
+                  lazy={false}
+                />
+              </div>
+              <button
+                onClick={() => setPickerOpen(true)}
+                className="text-xs text-zinc-500 mb-3 flex items-center gap-1 hover:text-fuchsia-300 transition"
+              >
+                <RefreshCw size={12} /> Change GIF
+              </button>
+              <textarea
+                value={caption}
+                onChange={e => setCaption(e.target.value.slice(0, 200))}
+                placeholder="Add a caption…"
+                rows={2}
+                className="w-full bg-black/40 border border-fuchsia-500/30 rounded-xl px-4 py-3 text-white text-sm outline-none resize-none mb-3 focus:border-fuchsia-500"
+              />
+            </>
           )}
+
+          <div className="flex gap-2">
+            <button onClick={onClose} className="flex-1 py-3 rounded-xl glass border border-white/10 text-zinc-300 font-semibold text-sm">
+              Cancel
+            </button>
+            {selected && (
+              <button
+                onClick={post}
+                disabled={posting}
+                className="flex-1 py-3 rounded-xl bg-gradient-to-r from-fuchsia-600 to-pink-500 text-white font-bold text-sm neon-glow-pink disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {posting ? <Loader2 size={15} className="animate-spin" /> : <Share2 size={15} />}
+                {posting ? 'Posting…' : 'Post'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+
+      <FwdLibraryPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={setSelected}
+        title="Use from Library"
+      />
+    </>
   );
 };
 
@@ -133,6 +125,9 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
   const { user } = useAuth();
   const nav = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [downloadOpen, setDownloadOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [sharing, setSharing] = useState(false);
 
   const displayName = post.profile?.display_name || post.profile?.username || 'FWD User';
   const avatar = post.profile?.avatar_url;
@@ -140,9 +135,12 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
   const isOwner = user?.id === post.user_id;
 
   const handleShare = async () => {
+    if (sharing) return;
+    setSharing(true);
     const result = await shareFwd(post.id, { caption: post.caption ?? undefined });
-    if (result === 'copied') toast({ title: 'Link copied to clipboard' });
-    if (result === 'error') toast({ title: 'Could not share', variant: 'destructive' });
+    setSharing(false);
+    if (result === 'copied') toast({ title: 'FWD link copied.' });
+    if (result === 'failed') toast({ title: 'Share failed', description: 'Couldn’t share or copy this FWD.', variant: 'destructive' });
     if (result !== 'cancelled') recordShare(post.id, { sharedBy: user?.id, channel: result });
   };
 
@@ -167,12 +165,7 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
       toast({ title: 'Download not allowed', description: 'The creator has disabled downloads.' });
       return;
     }
-    if (!post.gif?.image) return;
-    const a = document.createElement('a');
-    a.href = post.gif.image;
-    a.download = `${post.gif.title || 'fwd-gif'}.gif`;
-    a.target = '_blank';
-    a.click();
+    setDownloadOpen(true);
   };
 
   const relativeTime = (iso: string) => {
@@ -206,23 +199,26 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
         </div>
         <div className="relative">
           <button
-            onClick={() => setMenuOpen(!menuOpen)}
+            onClick={(event) => { stopActionEvent(event); setMenuOpen(!menuOpen); }}
             className="w-8 h-8 rounded-full glass flex items-center justify-center"
           >
             <MoreHorizontal size={16} className="text-zinc-400" />
           </button>
           {menuOpen && (
             <div className="absolute right-0 top-10 z-10 glass-strong rounded-xl border border-fuchsia-500/30 py-1 min-w-[140px]">
-              <button onClick={() => { handleShare(); setMenuOpen(false); }} className="w-full px-4 py-2 text-left text-sm text-zinc-200 hover:bg-white/5 flex items-center gap-2">
+              <button onClick={(event) => { stopActionEvent(event); handleShare(); setMenuOpen(false); }} className="w-full px-4 py-2 text-left text-sm text-zinc-200 hover:bg-white/5 flex items-center gap-2">
                 <Share2 size={14} /> Share
               </button>
               {post.gif?.allow_download && (
-                <button onClick={() => { handleDownload(); setMenuOpen(false); }} className="w-full px-4 py-2 text-left text-sm text-zinc-200 hover:bg-white/5 flex items-center gap-2">
+                <button onClick={(event) => { stopActionEvent(event); handleDownload(); setMenuOpen(false); }} className="w-full px-4 py-2 text-left text-sm text-zinc-200 hover:bg-white/5 flex items-center gap-2">
                   <Download size={14} /> Download
                 </button>
               )}
+              <button onClick={(event) => { stopActionEvent(event); setReportOpen(true); setMenuOpen(false); }} className="w-full px-4 py-2 text-left text-sm text-zinc-200 hover:bg-white/5 flex items-center gap-2">
+                <Flag size={14} /> Report
+              </button>
               {isOwner && (
-                <button onClick={() => { deletePost(post.id); setMenuOpen(false); }} className="w-full px-4 py-2 text-left text-sm text-pink-400 hover:bg-white/5">
+                <button onClick={(event) => { stopActionEvent(event); deletePost(post.id); setMenuOpen(false); }} className="w-full px-4 py-2 text-left text-sm text-pink-400 hover:bg-white/5">
                   Delete post
                 </button>
               )}
@@ -261,7 +257,11 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
       {/* Actions */}
       <div className="flex items-center gap-1 px-3 py-3 border-t border-white/5 mt-2">
         <button
-          onClick={() => user ? toggleLike(post.id) : nav('/login')}
+          onClick={(event) => {
+            stopActionEvent(event);
+            if (user) toggleLike(post.id);
+            else nav('/login');
+          }}
           className="flex items-center gap-1.5 px-3 py-2 rounded-xl hover:bg-white/5 transition"
         >
           <Heart size={18}
@@ -273,13 +273,23 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
           </span>
         </button>
 
-        <button onClick={() => post.gif_id && nav(`/gif/${post.gif_id}`)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl hover:bg-white/5 transition">
+        <button
+          onClick={(event) => {
+            stopActionEvent(event);
+            if (post.gif_id) nav(`/gif/${post.gif_id}`);
+          }}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl hover:bg-white/5 transition"
+        >
           <MessageCircle size={18} className="text-zinc-400" />
           {post.comment_count > 0 && <span className="text-xs font-semibold text-zinc-400">{post.comment_count}</span>}
         </button>
 
         <button
-          onClick={() => user ? savePost(post.id) : nav('/login')}
+          onClick={(event) => {
+            stopActionEvent(event);
+            if (user) savePost(post.id);
+            else nav('/login');
+          }}
           className="flex items-center gap-1.5 px-3 py-2 rounded-xl hover:bg-white/5 transition"
         >
           <Bookmark size={18}
@@ -289,7 +299,7 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
 
         {post.gif?.allow_reuse && (
           <button
-            onClick={handleReuse}
+            onClick={(event) => { stopActionEvent(event); handleReuse(); }}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl hover:bg-white/5 transition ml-auto"
           >
             <RefreshCw size={16} className="text-cyan-400" />
@@ -298,12 +308,14 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
         )}
 
         <button
-          onClick={handleShare}
+          onClick={(event) => { stopActionEvent(event); handleShare(); }}
           className={`flex items-center gap-1.5 px-3 py-2 rounded-xl hover:bg-white/5 transition ${post.gif?.allow_reuse ? '' : 'ml-auto'}`}
         >
           <Share2 size={16} className="text-zinc-400" />
         </button>
       </div>
+      <FwdDownloadSheet open={downloadOpen} onOpenChange={setDownloadOpen} gif={post.gif ?? null} shareId={post.id} />
+      <FwdReportSheet open={reportOpen} onOpenChange={setReportOpen} gifId={post.gif_id} postId={post.id} />
     </article>
   );
 };
@@ -342,10 +354,7 @@ const Feed: React.FC = () => {
         <div className="flex items-center justify-between mb-5">
           <div className="w-9" />
           <FwdLogo size="md" />
-          <button className="w-9 h-9 rounded-full glass flex items-center justify-center relative">
-            <Bell size={18} className="text-fuchsia-400" />
-            <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-pink-500" />
-          </button>
+          <NotificationBell className="w-9 h-9" />
         </div>
 
         {/* Post button */}

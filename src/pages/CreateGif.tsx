@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  ArrowLeft, Bell, Scissors, Crop, Type, Smile, Gauge, Aperture, Camera, Play,
+  ArrowLeft, Scissors, Crop, Type, Smile, Gauge, Aperture, Camera, Play,
   X, ChevronDown, Globe, Lock, ChevronsRight, Loader2, Check, Upload,
   Share2, Bookmark, RefreshCw, Sparkles, RotateCw,
 } from 'lucide-react';
@@ -14,6 +14,7 @@ import { supabase } from '@/lib/supabase';
 import { toast } from '@/components/ui/use-toast';
 import FwdAnimatedGif from '@/components/FwdAnimatedGif';
 import { categorizeGif, GifCategorization } from '@/lib/aiCategorizer';
+import NotificationBell from '@/components/NotificationBell';
 
 const TOOLS = [
   { id: 'trim', icon: Scissors, label: 'Trim' },
@@ -560,10 +561,7 @@ const CreateGif: React.FC = () => {
             <ArrowLeft size={18} className="text-white" />
           </button>
           <FwdLogo size="md" />
-          <button className="w-10 h-10 rounded-full glass flex items-center justify-center relative">
-            <Bell size={18} className="text-fuchsia-400" />
-            <span className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-pink-500" />
-          </button>
+          <NotificationBell />
         </div>
 
         <div className="text-center mb-4">

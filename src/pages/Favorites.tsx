@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search as SearchIcon, Heart, Filter, ChevronRight, Sparkles, Bell, Grid3x3, Smile, Music } from 'lucide-react';
+import { Search as SearchIcon, Heart, Filter, ChevronRight, Sparkles, Grid3x3, Smile, Music } from 'lucide-react';
 import FwdLogo from '@/components/FwdLogo';
 import BottomNav from '@/components/BottomNav';
 import GifCard from '@/components/GifCard';
 import { GIFS } from '@/data/gifs';
 import { useAppContext } from '@/contexts/AppContext';
+import NotificationBell from '@/components/NotificationBell';
 
 const FILTERS = [
   { id: 'All', icon: Grid3x3 },
@@ -38,10 +39,7 @@ const Favorites: React.FC = () => {
         <div className="flex items-center justify-between mb-3">
           <div className="w-10" />
           <FwdLogo size="md" />
-          <button className="w-10 h-10 rounded-full glass flex items-center justify-center relative">
-            <Bell size={18} className="text-fuchsia-400" />
-            <span className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-pink-500" />
-          </button>
+          <NotificationBell />
         </div>
 
         <h1 className="text-4xl font-black text-white mt-2">Your reaction vault</h1>

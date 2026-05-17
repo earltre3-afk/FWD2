@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import FwdLogo from '@/components/FwdLogo';
 import FwdMediaPlayer from '@/components/FwdMediaPlayer';
-import { shareFwd, recordShare, trackShareOpen } from '@/lib/fwdShare';
+import { shareFwdItem, recordShare, trackShareOpen, getFwdShareUrl } from '@/lib/fwdShare';
 import { toast } from '@/components/ui/use-toast';
 
 interface SharePost {
@@ -121,11 +121,15 @@ const FwdShare: React.FC = () => {
   const handleShare = async () => {
     if (!id || !post) return;
     setSharing(true);
-    const result = await shareFwd(id, { caption: post.caption || post.title || undefined });
+    const result = await shareFwdItem({
+      id,
+      title: post.title || 'You got a FWD',
+      caption: post.caption || 'Open this FWD, remix it, or send one back.',
+      absoluteUrl: getFwdShareUrl(id),
+    });
     setSharing(false);
-    if (result === 'copied') toast({ title: 'Link copied to clipboard' });
-    if (result === 'native') toast({ title: 'Shared!' });
-    if (result === 'error') toast({ title: 'Could not share', variant: 'destructive' });
+    if (result === 'copied') toast({ title: 'FWD link copied.' });
+    if (result === 'failed') toast({ title: 'Share failed', description: 'Couldn’t share or copy this FWD.', variant: 'destructive' });
     if (result !== 'cancelled') recordShare(id, { sharedBy: user?.id, channel: result });
   };
 

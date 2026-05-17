@@ -1,19 +1,33 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Settings, BadgeCheck, Bookmark, Layers, Play, Edit3, ChevronRight, ChevronDown, LogOut, Check, X, Newspaper, Search as SearchIcon } from 'lucide-react';
+import {
+  Settings, BadgeCheck, Bookmark, Layers, Play, Edit3, ChevronRight,
+  ChevronDown, LogOut, Check, X, Newspaper, Search as SearchIcon,
+  FolderOpen, Trash2, Pin,
+} from 'lucide-react';
 import FwdLogo from '@/components/FwdLogo';
 import BottomNav from '@/components/BottomNav';
 import GifCard from '@/components/GifCard';
 import FwdMediaPlayer from '@/components/FwdMediaPlayer';
+import FwdLibraryPicker from '@/components/FwdLibraryPicker';
 import { useAppContext, Gif } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/components/ui/use-toast';
 import { supabase } from '@/lib/supabase';
 
+interface Pack {
+  id: string;
+  name: string;
+  gifCount: number;
+  coverGifUrl?: string;
+  items: Gif[];
+}
+
 const TABS = [
   { id: 'created', label: 'Created', icon: Play },
   { id: 'saved', label: 'Saved', icon: Bookmark },
   { id: 'posted', label: 'Posted', icon: Newspaper },
+  { id: 'packs', label: 'Packs', icon: FolderOpen },
   { id: 'collections', label: 'Collections', icon: Layers },
 ];
 
@@ -27,6 +41,19 @@ const Profile: React.FC = () => {
   const { user, profile, signOut, updateProfile, updatePassword } = useAuth();
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const myPosts = feedPosts.filter(p => p.user_id === user?.id);
+
+  // Packs
+  const [packs, setPacks] = useState<Pack[]>([]);
+  const [packsLoading, setPacksLoading] = useState(false);
+  const [activePack, setActivePack] = useState<Pack | null>(null);
+  const [addPickerOpen, setAddPickerOpen] = useState(false);
+  const [addToPackId, setAddToPackId] = useState<string | null>(null);
+  const [newPackName, setNewPackName] = useState('');
+  const [creatingPack, setCreatingPack] = useState(false);
+
+  // Pinned GIF
+  const [pinnedGif, setPinnedGif] = useState<Gif | null>(null);
+  const [pinPickerOpen, setPinPickerOpen] = useState(false);
 
   // Edit drafts
   const [nameDraft, setNameDraft] = useState('');
@@ -48,6 +75,164 @@ const Profile: React.FC = () => {
       setPasswordDraft('');
     }
   }, [editMode, profile]);
+
+  // Load packs when packs tab is active
+  useEffect(() => {
+    if (tab === 'packs' && user && packs.length === 0 && !packsLoading) {
+      loadPacks();
+    }
+  }, [tab, user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load pinned GIF from profile
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('pinned_gif_id, fwd_gifs:pinned_gif_id(id, title, gif_url, media_url, still_url, thumbnail_url, mp4_url, webm_url, tags, category, mood, source_video_url, media_type, is_animated)')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (data?.fwd_gifs) {
+        const g = data.fwd_gifs as any;
+        setPinnedGif({
+          id: g.id,
+          title: g.title || 'Pinned FWD',
+          image: g.gif_url || g.media_url || '',
+          still_url: g.still_url || g.thumbnail_url || undefined,
+          mp4_url: g.mp4_url || undefined,
+          webm_url: g.webm_url || undefined,
+          tags: g.tags || [],
+          category: g.category || 'Reactions',
+          mood: g.mood || undefined,
+          source_video_url: g.source_video_url || undefined,
+          media_type: g.media_type || undefined,
+          is_animated: g.is_animated ?? true,
+        });
+      }
+    })();
+  }, [user]);
+
+  const loadPacks = async () => {
+    if (!user) return;
+    setPacksLoading(true);
+    const { data: packRows } = await supabase
+      .from('fwd_library_packs')
+      .select('id, name')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: true });
+
+    if (!packRows || packRows.length === 0) {
+      setPacks([]);
+      setPacksLoading(false);
+      return;
+    }
+
+    const packIds = packRows.map((p: any) => p.id);
+    const { data: itemRows } = await supabase
+      .from('fwd_library_pack_items')
+      .select('pack_id, gif_id, position, fwd_gifs(id, title, gif_url, media_url, still_url, thumbnail_url, mp4_url, webm_url, tags, category, mood, source_video_url, media_type, is_animated)')
+      .in('pack_id', packIds)
+      .order('position', { ascending: true });
+
+    const loaded: Pack[] = packRows.map((p: any) => {
+      const items = (itemRows || [])
+        .filter((r: any) => r.pack_id === p.id)
+        .map((r: any) => {
+          const g = r.fwd_gifs;
+          if (!g) return null;
+          return {
+            id: g.id,
+            title: g.title || 'Untitled',
+            image: g.gif_url || g.media_url || '',
+            still_url: g.still_url || g.thumbnail_url || undefined,
+            mp4_url: g.mp4_url || undefined,
+            webm_url: g.webm_url || undefined,
+            tags: g.tags || [],
+            category: g.category || 'Reactions',
+            mood: g.mood || undefined,
+            source_video_url: g.source_video_url || undefined,
+            media_type: g.media_type || undefined,
+            is_animated: g.is_animated ?? true,
+          } as Gif;
+        })
+        .filter(Boolean) as Gif[];
+      return {
+        id: p.id,
+        name: p.name,
+        gifCount: items.length,
+        coverGifUrl: items[0]?.image,
+        items,
+      };
+    });
+
+    setPacks(loaded);
+    setPacksLoading(false);
+  };
+
+  const createPack = async () => {
+    if (!user || !newPackName.trim()) return;
+    setCreatingPack(true);
+    const { data, error } = await supabase
+      .from('fwd_library_packs')
+      .insert({ user_id: user.id, name: newPackName.trim() })
+      .select()
+      .single();
+    setCreatingPack(false);
+    if (error || !data) { toast({ title: 'Could not create pack', variant: 'destructive' }); return; }
+    const pack: Pack = { id: data.id, name: data.name, gifCount: 0, items: [] };
+    setPacks(prev => [...prev, pack]);
+    setNewPackName('');
+    toast({ title: `Pack "${data.name}" created` });
+  };
+
+  const deletePack = async (packId: string) => {
+    await supabase.from('fwd_library_packs').delete().eq('id', packId);
+    setPacks(prev => prev.filter(p => p.id !== packId));
+    if (activePack?.id === packId) setActivePack(null);
+    toast({ title: 'Pack deleted' });
+  };
+
+  const removeFromPack = async (packId: string, gifId: string) => {
+    await supabase.from('fwd_library_pack_items').delete().eq('pack_id', packId).eq('gif_id', gifId);
+    setPacks(prev => prev.map(p => p.id === packId
+      ? { ...p, items: p.items.filter(g => g.id !== gifId), gifCount: p.gifCount - 1 }
+      : p
+    ));
+    if (activePack?.id === packId) {
+      setActivePack(prev => prev ? { ...prev, items: prev.items.filter(g => g.id !== gifId), gifCount: prev.gifCount - 1 } : null);
+    }
+  };
+
+  const addGifToPack = async (gif: Gif) => {
+    if (!addToPackId) return;
+    const { error } = await supabase
+      .from('fwd_library_pack_items')
+      .upsert({ pack_id: addToPackId, gif_id: gif.id, position: 0 }, { onConflict: 'pack_id,gif_id' });
+    if (error) { toast({ title: 'Could not add to pack', variant: 'destructive' }); return; }
+    const pack = packs.find(p => p.id === addToPackId);
+    setPacks(prev => prev.map(p => p.id === addToPackId
+      ? { ...p, items: [...p.items.filter(g => g.id !== gif.id), gif], gifCount: p.gifCount + 1, coverGifUrl: p.coverGifUrl || gif.image }
+      : p
+    ));
+    toast({ title: `Added to "${pack?.name || 'pack'}"` });
+    setAddPickerOpen(false);
+    setAddToPackId(null);
+  };
+
+  const setPinnedFwd = async (gif: Gif) => {
+    if (!user) return;
+    await supabase.from('profiles').update({ pinned_gif_id: gif.id }).eq('id', user.id);
+    setPinnedGif(gif);
+    setPinPickerOpen(false);
+    toast({ title: 'Pinned FWD updated' });
+  };
+
+  const clearPinnedFwd = async () => {
+    if (!user) return;
+    await supabase.from('profiles').update({ pinned_gif_id: null }).eq('id', user.id);
+    setPinnedGif(null);
+    toast({ title: 'Pinned FWD cleared' });
+  };
 
   const postedGifs: Gif[] = myPosts.map(p => p.gif).filter(Boolean) as Gif[];
   const savedGifs: Gif[] = savedLibrary
@@ -282,28 +467,71 @@ const Profile: React.FC = () => {
                 </div>
               </div>
 
+              {/* Pinned FWD */}
+              {pinnedGif && (
+                <div className="mt-4 pt-4 border-t border-white/5">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Pin size={12} className="text-fuchsia-400" />
+                    <span className="text-[10px] font-black tracking-wider text-zinc-400 uppercase">Pinned FWD</span>
+                  </div>
+                  <div className="flex gap-3 items-center">
+                    <div
+                      className="w-16 h-16 rounded-xl overflow-hidden border border-fuchsia-500/30 shrink-0 cursor-pointer"
+                      onClick={() => nav(`/gif/${pinnedGif.id}`)}
+                    >
+                      <FwdMediaPlayer
+                        gifUrl={pinnedGif.image}
+                        posterUrl={pinnedGif.still_url}
+                        mp4Url={pinnedGif.mp4_url}
+                        webmUrl={pinnedGif.webm_url}
+                        mediaType={pinnedGif.media_type}
+                        isAnimated={pinnedGif.is_animated}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-white text-sm font-bold truncate">{pinnedGif.title}</p>
+                      <div className="flex gap-2 mt-1">
+                        <button onClick={() => setPinPickerOpen(true)} className="text-[10px] text-fuchsia-400 hover:text-white">Change</button>
+                        <button onClick={clearPinnedFwd} className="text-[10px] text-zinc-500 hover:text-red-400">Remove</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Edit profile button */}
-              <button
-                onClick={() => setEditMode(true)}
-                className="mt-4 w-full flex items-center justify-center gap-2 glass rounded-xl px-3 py-2.5 border border-fuchsia-500/30 text-sm font-semibold text-fuchsia-300 hover:border-fuchsia-500/60 hover:text-white transition"
-              >
-                <Edit3 size={14} /> Edit Profile
-              </button>
+              <div className="mt-4 flex gap-2">
+                <button
+                  onClick={() => setEditMode(true)}
+                  className="flex-1 flex items-center justify-center gap-2 glass rounded-xl px-3 py-2.5 border border-fuchsia-500/30 text-sm font-semibold text-fuchsia-300 hover:border-fuchsia-500/60 hover:text-white transition"
+                >
+                  <Edit3 size={14} /> Edit Profile
+                </button>
+                {!pinnedGif && (
+                  <button
+                    onClick={() => setPinPickerOpen(true)}
+                    className="flex items-center gap-1.5 glass rounded-xl px-3 py-2.5 border border-fuchsia-500/20 text-xs font-semibold text-zinc-400 hover:text-fuchsia-300 hover:border-fuchsia-500/40 transition"
+                  >
+                    <Pin size={13} /> Pin FWD
+                  </button>
+                )}
+              </div>
             </>
           )}
         </div>
 
         {/* Tabs */}
-        <div className="grid grid-cols-4 gap-2 mt-5">
+        <div className="grid grid-cols-5 gap-1.5 mt-5">
           {TABS.map(t => {
             const Icon = t.icon;
             const active = t.id === tab;
             return (
               <button key={t.id} onClick={() => setTab(t.id)}
-                className={`py-3 rounded-2xl text-sm font-bold border flex items-center justify-center gap-2 transition ${
+                className={`py-2.5 rounded-2xl text-xs font-bold border flex flex-col items-center gap-1 transition ${
                   active ? 'bg-gradient-to-r from-fuchsia-600 to-purple-600 text-white border-transparent neon-glow-purple' : 'glass text-zinc-300 border-white/10'
                 }`}>
-                <Icon size={15} /> {t.label}
+                <Icon size={14} /> {t.label}
               </button>
             );
           })}
@@ -422,6 +650,116 @@ const Profile: React.FC = () => {
           </>
         )}
 
+        {tab === 'packs' && (
+          <>
+            <div className="flex items-center justify-between mt-6 mb-3">
+              <h3 className="text-sm font-black text-white tracking-wider">YOUR PACKS</h3>
+              <span className="text-xs text-zinc-500">Save once. Use anywhere.</span>
+            </div>
+
+            {activePack ? (
+              <>
+                <div className="flex items-center justify-between mb-3">
+                  <button onClick={() => setActivePack(null)} className="flex items-center gap-1 text-xs text-zinc-400 hover:text-white transition">
+                    ← All Packs
+                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { setAddToPackId(activePack.id); setAddPickerOpen(true); }}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-fuchsia-600/20 border border-fuchsia-500/30 text-fuchsia-300 hover:bg-fuchsia-600/30 transition"
+                    >
+                      + Add GIF
+                    </button>
+                    <button onClick={() => deletePack(activePack.id)} className="text-xs px-3 py-1.5 rounded-lg glass border border-red-500/30 text-red-400 hover:bg-red-500/10 transition">
+                      Delete Pack
+                    </button>
+                  </div>
+                </div>
+                <h4 className="text-lg font-black text-white mb-4">{activePack.name}</h4>
+                {activePack.items.length === 0 ? (
+                  <div className="glass-strong rounded-3xl p-8 text-center border border-fuchsia-500/20">
+                    <FolderOpen size={28} className="mx-auto text-zinc-700 mb-2" />
+                    <p className="text-zinc-400 text-sm mb-3">This pack is empty.</p>
+                    <button onClick={() => { setAddToPackId(activePack.id); setAddPickerOpen(true); }}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-fuchsia-600 to-pink-500 text-white font-bold text-sm">
+                      Add GIF from Library
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    {activePack.items.map(g => (
+                      <div key={g.id} className="relative group">
+                        <GifCard gif={g} showHeart={false} />
+                        <button
+                          onClick={() => removeFromPack(activePack.id, g.id)}
+                          className="absolute top-2 left-2 w-7 h-7 rounded-full bg-black/70 border border-white/10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+                          title="Remove from pack"
+                        >
+                          <Trash2 size={12} className="text-red-400" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {packsLoading ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    {[1, 2, 3, 4].map(i => <div key={i} className="glass rounded-2xl aspect-square animate-pulse" />)}
+                  </div>
+                ) : packs.length === 0 ? (
+                  <div className="glass-strong rounded-3xl p-8 text-center border border-fuchsia-500/20">
+                    <FolderOpen size={32} className="mx-auto text-zinc-700 mb-3" />
+                    <p className="text-zinc-400 text-sm mb-1">No packs yet.</p>
+                    <p className="text-zinc-600 text-xs">Packs let you group GIFs by theme, mood, or use case.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mb-4">
+                    {packs.map(p => (
+                      <button key={p.id} onClick={() => setActivePack(p)}
+                        className="glass-strong rounded-2xl p-3 border border-fuchsia-500/20 hover:border-fuchsia-500/50 text-left transition">
+                        <div className="w-full aspect-square rounded-lg overflow-hidden bg-black/40 mb-2">
+                          {p.coverGifUrl ? (
+                            <FwdMediaPlayer gifUrl={p.coverGifUrl} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-zinc-700">
+                              <FolderOpen size={24} />
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-white font-bold text-sm truncate">{p.name}</div>
+                        <div className="text-zinc-500 text-xs">{p.gifCount} FWD{p.gifCount === 1 ? '' : 's'}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Create pack */}
+                <div className="glass rounded-xl p-3 border border-fuchsia-500/20 mt-4">
+                  <p className="text-xs font-bold text-white mb-2">New Pack</p>
+                  <div className="flex gap-2">
+                    <input
+                      value={newPackName}
+                      onChange={e => setNewPackName(e.target.value.slice(0, 80))}
+                      onKeyDown={e => { if (e.key === 'Enter') createPack(); }}
+                      placeholder="Pack name…"
+                      className="flex-1 bg-black/40 border border-fuchsia-500/25 rounded-xl px-3 py-2.5 text-white text-sm outline-none"
+                    />
+                    <button
+                      onClick={createPack}
+                      disabled={creatingPack || !newPackName.trim()}
+                      className="px-4 rounded-xl bg-fuchsia-600 text-white text-sm font-bold disabled:opacity-50"
+                    >
+                      Create
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </>
+        )}
+
         {tab === 'collections' && (
           <>
             <div className="flex items-center justify-between mt-6 mb-3">
@@ -474,6 +812,23 @@ const Profile: React.FC = () => {
           Discover creators
         </button>
       </div>
+
+      {/* Pin FWD picker */}
+      <FwdLibraryPicker
+        open={pinPickerOpen}
+        onClose={() => setPinPickerOpen(false)}
+        onSelect={setPinnedFwd}
+        title="Set Pinned FWD"
+      />
+
+      {/* Add to pack picker */}
+      <FwdLibraryPicker
+        open={addPickerOpen}
+        onClose={() => { setAddPickerOpen(false); setAddToPackId(null); }}
+        onSelect={addGifToPack}
+        title="Add to Pack"
+      />
+
       <BottomNav />
     </div>
   );

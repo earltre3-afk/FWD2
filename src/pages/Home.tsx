@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search as SearchIcon, Sparkles, Bell, Upload, Camera, Zap, TrendingUp, Tv, Music, Gamepad2, Film, Smile, Trophy, Flame } from 'lucide-react';
+import { Search as SearchIcon, Sparkles, Upload, Camera, Zap, TrendingUp, Tv, Music, Gamepad2, Film, Smile, Trophy, Flame } from 'lucide-react';
 import FwdLogo from '@/components/FwdLogo';
 import BottomNav from '@/components/BottomNav';
 import GifCard from '@/components/GifCard';
 import { GIFS, CATEGORIES, MOODS, getGifsByCategory } from '@/data/gifs';
+import NotificationBell from '@/components/NotificationBell';
 
 const catIcon: Record<string, any> = {
   'Trending': TrendingUp, 'New': Sparkles, 'Reactions': Smile, 'Clips': Film,
@@ -27,10 +28,7 @@ const Home: React.FC = () => {
         <div className="flex items-center justify-between mb-5">
           <div className="w-9" />
           <FwdLogo size="md" />
-          <button onClick={() => nav('/profile')} className="w-9 h-9 rounded-full glass flex items-center justify-center relative">
-            <Bell size={18} className="text-fuchsia-400" />
-            <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-pink-500" />
-          </button>
+          <NotificationBell className="w-9 h-9" />
         </div>
 
         {/* Search */}
