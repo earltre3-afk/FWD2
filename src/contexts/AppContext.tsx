@@ -297,7 +297,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await supabase.from('favorites').upsert(
       { user_id: user.id, gif_id: data.id },
       { onConflict: 'user_id,gif_id' }
-    ).catch(() => {/* ignore duplicate */});
+    );
     markCreated(data.id, 'fwd');
     return newGif;
   }, [user, markCreated]);
