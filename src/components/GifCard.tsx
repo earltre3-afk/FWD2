@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bookmark, Play, Share2, Trash2 } from 'lucide-react';
 import { Gif, useAppContext } from '@/contexts/AppContext';
-import FwdAnimatedGif from '@/components/FwdAnimatedGif';
+import FwdMediaPlayer from '@/components/FwdMediaPlayer';
 import { toast } from '@/components/ui/use-toast';
 
 interface Props {
@@ -34,11 +34,6 @@ const GifCard: React.FC<Props> = ({
     else nav(`/gif/${gif.id}`);
   };
 
-  const handleLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = e.currentTarget;
-    if (img.naturalWidth <= 1 || img.naturalHeight <= 1) setDead(true);
-  };
-
   if (dead) return null;
 
   return (
@@ -46,13 +41,12 @@ const GifCard: React.FC<Props> = ({
       onClick={handleClick}
       className={`relative group cursor-pointer rounded-xl sm:rounded-2xl overflow-hidden glass-strong border border-fuchsia-500/20 hover:border-fuchsia-500/60 transition-all hover:scale-[1.02] hover:shadow-[0_0_30px_rgba(176,38,255,0.4)] ${tall ? 'aspect-[3/4]' : 'aspect-square'} ${className}`}
     >
-      <FwdAnimatedGif
+      <FwdMediaPlayer
         gifUrl={gif.image}
-        stillUrl={gif.still_url}
+        posterUrl={gif.still_url}
         title={gif.title}
         className="w-full h-full object-cover"
         onError={() => setDead(true)}
-        onLoad={handleLoad}
       />
       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/0 to-black/30" />
       <span className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/60 backdrop-blur text-[10px] font-bold tracking-wider text-white border border-white/10">

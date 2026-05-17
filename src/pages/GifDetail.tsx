@@ -4,7 +4,7 @@ import { ArrowLeft, Heart, Link as LinkIcon, Share2, Flag, Maximize2, Flame, Bel
 import FwdLogo from '@/components/FwdLogo';
 import BottomNav from '@/components/BottomNav';
 import GifCard from '@/components/GifCard';
-import FwdAnimatedGif from '@/components/FwdAnimatedGif';
+import FwdMediaPlayer from '@/components/FwdMediaPlayer';
 import { GIFS, findGif } from '@/data/gifs';
 import { Gif, useAppContext } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -190,7 +190,7 @@ const GifDetail: React.FC = () => {
         ) : (
           <>
             <div className="relative rounded-3xl overflow-hidden glass-strong border border-fuchsia-500/40 neon-glow-purple aspect-square">
-              <FwdAnimatedGif gifUrl={gif.image} stillUrl={gif.still_url} title={gif.title} className="w-full h-full object-contain bg-black/60" lazy={false} />
+              <FwdMediaPlayer gifUrl={gif.image} posterUrl={gif.still_url} title={gif.title} className="w-full h-full object-contain bg-black/60" objectFit="contain" lazy={false} />
               <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
               <span className="absolute top-3 left-3 px-2.5 py-1 rounded-md bg-black/60 text-[11px] font-bold tracking-wider text-white border border-white/10">GIF</span>
               <button className="absolute bottom-3 right-3 w-10 h-10 rounded-full bg-black/60 backdrop-blur flex items-center justify-center border border-white/15">

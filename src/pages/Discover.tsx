@@ -6,6 +6,7 @@ import BottomNav from '@/components/BottomNav';
 import FollowButton from '@/components/FollowButton';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import FwdMediaPlayer from '@/components/FwdMediaPlayer';
 
 interface ProfileRow {
   id: string;
@@ -272,7 +273,7 @@ const Discover: React.FC = () => {
                       onClick={() => g.profile?.username ? nav(`/u/${g.profile.username}`) : null}
                       className="relative aspect-square rounded-xl overflow-hidden border border-fuchsia-500/20 hover:border-fuchsia-500/60 transition group"
                     >
-                      <img src={g.image_url} className="w-full h-full object-cover" loading="lazy" />
+                      <FwdMediaPlayer gifUrl={g.image_url} className="w-full h-full object-cover" />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/0 to-transparent" />
                       <div className="absolute bottom-1.5 left-1.5 right-1.5">
                         <div className="text-[10px] text-white font-bold truncate">{g.title || 'Untitled FWD'}</div>

@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import FwdLogo from '@/components/FwdLogo';
 import BottomNav from '@/components/BottomNav';
-import FwdAnimatedGif from '@/components/FwdAnimatedGif';
+import FwdMediaPlayer from '@/components/FwdMediaPlayer';
 import { useAppContext, FwdPost, Gif } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -63,7 +63,7 @@ const PostComposer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                     onClick={() => setSelected(g)}
                     className="relative aspect-square rounded-xl overflow-hidden border-2 border-transparent hover:border-fuchsia-500 transition"
                   >
-                    <FwdAnimatedGif gifUrl={g.image} title={g.title} className="w-full h-full object-cover" />
+                    <FwdMediaPlayer gifUrl={g.image} title={g.title} className="w-full h-full object-cover" />
                   </button>
                 ))}
               </div>
@@ -72,7 +72,7 @@ const PostComposer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         ) : (
           <>
             <div className="aspect-square rounded-2xl overflow-hidden border border-fuchsia-500/30 max-h-56 mx-auto mb-3">
-              <FwdAnimatedGif gifUrl={selected.image} title={selected.title} className="w-full h-full object-contain bg-black/60" lazy={false} />
+              <FwdMediaPlayer gifUrl={selected.image} title={selected.title} className="w-full h-full object-contain bg-black/60" objectFit="contain" lazy={false} />
             </div>
             <button onClick={() => setSelected(null)} className="text-xs text-zinc-500 mb-3 flex items-center gap-1">
               <RefreshCw size={12} /> Change GIF
@@ -212,12 +212,13 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
       {/* GIF — the star */}
       {post.gif?.image ? (
         <div className="relative bg-black/60 w-full" style={{ maxHeight: '480px', minHeight: '240px' }}>
-          <FwdAnimatedGif
+          <FwdMediaPlayer
             gifUrl={post.gif.image}
-            stillUrl={post.gif.still_url}
+            posterUrl={post.gif.still_url}
             title={post.gif.title}
             className="w-full object-contain"
             style={{ maxHeight: '480px', display: 'block' } as React.CSSProperties}
+            objectFit="contain"
           />
           <span className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/60 text-[10px] font-bold tracking-wider text-white border border-white/10">GIF</span>
         </div>

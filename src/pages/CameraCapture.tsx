@@ -195,8 +195,9 @@ const CameraCapture: React.FC = () => {
       toast({ title: 'Sign in required', description: 'Sign in to create GIFs from your clips.' });
       return;
     }
-    // Pass the blob URL directly to /create — no premature Supabase upload.
-    // CreateGif will fetch the blob, encode it to GIF, and upload only the final GIF.
+    // Revoke the preview URL before creating the navigation URL so we don't
+    // hold two object URLs pointing to the same blob simultaneously.
+    revokePreview();
     const url = URL.createObjectURL(blob);
     stopTracks();
     nav('/create', { state: { image: url, mediaType: blob.type || 'video/webm' } });

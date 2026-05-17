@@ -8,6 +8,7 @@ export interface Gif {
   title: string;
   image: string;       // gif_url in DB
   still_url?: string;
+  mp4_url?: string;    // H.264 MP4 rendition — pass as mp4Url to FwdMediaPlayer for Safari
   tags: string[];
   category: string;
   mood?: string;
@@ -309,11 +310,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteUserGif = useCallback(async (gifId: string): Promise<boolean> => {
     if (!user) return false;
     const gif = userGifs.find(g => g.id === gifId);
-    // Optimistic removal
+
+    // Optimistic removal from all local state
     setUserGifs(prev => prev.filter(g => g.id !== gifId));
     setSavedLibrary(prev => prev.filter(g => g.id !== gifId));
     setFavorites(prev => prev.filter(id => id !== gifId));
+    setFeedPosts(prev => prev.filter(p => p.gif_id !== gifId));
+    setCollections(prev => prev.map(c => ({ ...c, gifIds: c.gifIds.filter(id => id !== gifId) })));
 
+    // Delete the master record (ownership-guarded)
     const { error } = await supabase
       .from('fwd_gifs')
       .delete()
@@ -328,6 +333,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       return false;
     }
+
+    // Cascade-delete across all related tables (best-effort, fire-and-forget)
+    Promise.all([
+      // Remove from every user's favorites
+      supabase.from('fwd_favorites').delete().eq('gif_id', gifId),
+      // Remove all feed posts that reference this GIF
+      supabase.from('fwd_feed_posts').delete().eq('gif_id', gifId),
+      // Remove from all collections
+      supabase.from('fwd_collection_items').delete().eq('gif_id', gifId),
+      // Remove from external scout cache so it won't resurface in search
+      supabase.from('reaction_search_cache').delete().eq('source_id', gifId),
+    ]).catch(() => { /* non-fatal — main row is already gone */ });
 
     // Best-effort storage cleanup
     if (gif?.image) {

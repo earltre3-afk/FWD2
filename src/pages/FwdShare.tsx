@@ -4,7 +4,7 @@ import { Share2, Loader2, ArrowRight, Lock } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import FwdLogo from '@/components/FwdLogo';
-import FwdAnimatedGif from '@/components/FwdAnimatedGif';
+import FwdMediaPlayer from '@/components/FwdMediaPlayer';
 import { shareFwd, recordShare, trackShareOpen } from '@/lib/fwdShare';
 import { toast } from '@/components/ui/use-toast';
 
@@ -160,12 +160,13 @@ const FwdShare: React.FC = () => {
         {/* GIF */}
         {post?.gif_url ? (
           <div className="relative bg-black/60 w-full">
-            <FwdAnimatedGif
+            <FwdMediaPlayer
               gifUrl={post.gif_url}
-              stillUrl={post.still_url ?? undefined}
+              posterUrl={post.still_url ?? undefined}
               title={post.title ?? 'FWD'}
               className="w-full object-contain"
               style={{ maxHeight: '480px', display: 'block' } as React.CSSProperties}
+              objectFit="contain"
               lazy={false}
             />
             <span className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/60 text-[10px] font-bold tracking-wider text-white border border-white/10">GIF</span>
