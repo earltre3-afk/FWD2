@@ -143,13 +143,16 @@ const GifDetail: React.FC = () => {
       toast({ title: 'Comment too long', description: 'Keep comments under 500 characters.', variant: 'destructive' });
       return;
     }
+    // Ensure profile row exists before inserting comment (guards against FK violation
+    // for users whose auth trigger didn't fire, e.g. OAuth fast-path sign-ins).
+    await supabase.from('profiles').upsert({ id: user.id }, { onConflict: 'id', ignoreDuplicates: true });
     const { data, error } = await supabase
       .from('gif_comments')
       .insert({ gif_id: gif.id, user_id: user.id, body })
       .select('id, body, created_at, profile:user_id(display_name, username, avatar_url)')
       .single();
     if (error || !data) {
-      toast({ title: 'Comment failed', description: 'Try again in a moment.', variant: 'destructive' });
+      toast({ title: 'Comment failed', description: error?.message || 'Try again in a moment.', variant: 'destructive' });
       return;
     }
     setComment('');
@@ -230,41 +233,46 @@ const GifDetail: React.FC = () => {
               <ActionBtn icon={Flag} label="Report" onClick={() => toast({ title: 'Reported', description: 'Thanks. We will review this content.' })} />
             </div>
 
-            <section className="mt-6 glass-strong rounded-2xl border border-fuchsia-500/20 p-4">
-              <h2 className="text-sm font-black tracking-wider text-white mb-3">COMMENTS</h2>
-              {comments.length === 0 ? (
-                <p className="text-sm text-zinc-500 mb-3">No comments yet. Start the conversation.</p>
-              ) : (
-                <div className="space-y-3 mb-4">
-                  {comments.map((c) => {
-                    const name = c.profile?.display_name || c.profile?.username || 'FWD User';
-                    return (
-                      <div key={c.id} className="flex gap-2">
-                        <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-black text-white shrink-0">
-                          {name.charAt(0).toUpperCase()}
+            {uuidLike(gif.id) && (
+              <section className="mt-6 glass-strong rounded-2xl border border-fuchsia-500/20 p-4">
+                <h2 className="text-sm font-black tracking-wider text-white mb-3">COMMENTS</h2>
+                {comments.length === 0 ? (
+                  <p className="text-sm text-zinc-500 mb-3">No comments yet. Start the conversation.</p>
+                ) : (
+                  <div className="space-y-3 mb-4">
+                    {comments.map((c) => {
+                      const name = c.profile?.display_name || c.profile?.username || 'FWD User';
+                      return (
+                        <div key={c.id} className="flex gap-2">
+                          <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-black text-white shrink-0">
+                            {name.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-white">{name}</p>
+                            <p className="text-sm text-zinc-300 break-words">{c.body}</p>
+                          </div>
                         </div>
-                        <div className="min-w-0">
-                          <p className="text-xs font-bold text-white">{name}</p>
-                          <p className="text-sm text-zinc-300 break-words">{c.body}</p>
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <input
+                    id="comment-box"
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value.slice(0, 500))}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); postComment(); } }}
+                    placeholder={user ? 'Add a comment…' : 'Sign in to comment'}
+                    readOnly={!user}
+                    onClick={() => { if (!user) { toast({ title: 'Sign in to comment' }); nav('/login'); } }}
+                    className="flex-1 min-w-0 rounded-xl bg-black/40 border border-fuchsia-500/25 px-3 py-2.5 text-sm text-white outline-none placeholder-zinc-500"
+                  />
+                  <button onClick={postComment} className="w-11 rounded-xl bg-fuchsia-600 flex items-center justify-center">
+                    <Send size={16} className="text-white" />
+                  </button>
                 </div>
-              )}
-              <div className="flex gap-2">
-                <input
-                  id="comment-box"
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value.slice(0, 500))}
-                  placeholder="Add a comment..."
-                  className="flex-1 min-w-0 rounded-xl bg-black/40 border border-fuchsia-500/25 px-3 py-2.5 text-sm text-white outline-none"
-                />
-                <button onClick={postComment} className="w-11 rounded-xl bg-fuchsia-600 flex items-center justify-center">
-                  <Send size={16} className="text-white" />
-                </button>
-              </div>
-            </section>
+              </section>
+            )}
 
             {related.length > 0 && (
               <>
