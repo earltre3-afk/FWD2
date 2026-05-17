@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, RefreshCcw, Check, RotateCw, Camera as CameraIcon, Upload, Loader2, AlertTriangle } from 'lucide-react';
 import FwdLogo from '@/components/FwdLogo';
@@ -33,10 +33,30 @@ const CameraCapture: React.FC = () => {
   const [seconds, setSeconds] = useState(0);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [previewReady, setPreviewReady] = useState(false);
+
+  const attachLivePreview = useCallback(() => {
+    const video = videoRef.current;
+    const stream = streamRef.current;
+    if (!video || !stream) return;
+
+    if (video.srcObject !== stream) video.srcObject = stream;
+    video.muted = true;
+    video.autoplay = true;
+    video.playsInline = true;
+
+    const markReady = () => setPreviewReady(true);
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) markReady();
+    void video.play().then(markReady).catch(() => {
+      // Mobile browsers may resolve playback after metadata/canplay fires.
+    });
+  }, []);
 
   const stopTracks = () => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
+    setPreviewReady(false);
+    if (videoRef.current) videoRef.current.srcObject = null;
   };
 
   const clearStopTimeout = () => {
@@ -52,6 +72,7 @@ const CameraCapture: React.FC = () => {
 
   const startCamera = async (nextFacing: 'user' | 'environment') => {
     setPhase('requesting');
+    setPreviewReady(false);
 
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
       setPhase('unsupported');
@@ -65,11 +86,8 @@ const CameraCapture: React.FC = () => {
         audio: false,
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
       setPhase('ready');
+      window.requestAnimationFrame(attachLivePreview);
     } catch {
       setPhase('denied');
     }
@@ -85,6 +103,12 @@ const CameraCapture: React.FC = () => {
     // Run once on mount; switching camera is handled by flipCamera.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (phase === 'ready' || phase === 'recording') {
+      attachLivePreview();
+    }
+  }, [attachLivePreview, phase]);
 
   useEffect(() => {
     if (phase !== 'recording') return;
@@ -228,7 +252,23 @@ const CameraCapture: React.FC = () => {
         {phase === 'preview' && previewUrl ? (
           <video src={previewUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
         ) : (
-          <video ref={videoRef} autoPlay muted playsInline className={`w-full h-full object-cover ${facing === 'user' ? 'scale-x-[-1]' : ''}`} />
+          <video
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            onCanPlay={() => {
+              setPreviewReady(true);
+              attachLivePreview();
+            }}
+            onPlaying={() => setPreviewReady(true)}
+            className={`w-full h-full object-cover ${facing === 'user' ? 'scale-x-[-1]' : ''}`}
+          />
+        )}
+        {(phase === 'requesting' || phase === 'ready' || phase === 'recording') && !previewReady && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-sm font-semibold text-zinc-200">
+            Starting camera...
+          </div>
         )}
         <div className="absolute inset-0 pointer-events-none">
           <div className="absolute top-20 left-4 w-10 h-10 border-l-2 border-t-2 border-fuchsia-500 rounded-tl-2xl" />

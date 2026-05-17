@@ -83,6 +83,7 @@ const CreateGif: React.FC = () => {
   const [aiBusy, setAiBusy] = useState(false);
   const [aiHint, setAiHint] = useState('');
   const [aiApplied, setAiApplied] = useState(false);
+  const [cameraPreviewReady, setCameraPreviewReady] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
@@ -91,9 +92,28 @@ const CreateGif: React.FC = () => {
   const chunksRef = useRef<Blob[]>([]);
   const stopTimerRef = useRef<number | null>(null);
 
+  const attachCameraStream = useCallback(() => {
+    const video = cameraVideoRef.current;
+    const stream = streamRef.current;
+    if (!video || !stream) return;
+
+    if (video.srcObject !== stream) video.srcObject = stream;
+    video.muted = true;
+    video.autoplay = true;
+    video.playsInline = true;
+
+    const markReady = () => setCameraPreviewReady(true);
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) markReady();
+    void video.play().then(markReady).catch(() => {
+      // Some mobile browsers wait for the metadata event before play resolves.
+    });
+  }, []);
+
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach(track => track.stop());
     streamRef.current = null;
+    setCameraPreviewReady(false);
+    if (cameraVideoRef.current) cameraVideoRef.current.srcObject = null;
     if (stopTimerRef.current) window.clearTimeout(stopTimerRef.current);
     stopTimerRef.current = null;
   }, []);
@@ -102,6 +122,12 @@ const CreateGif: React.FC = () => {
     stopCamera();
     if (previewUrl?.startsWith('blob:')) URL.revokeObjectURL(previewUrl);
   }, [previewUrl, stopCamera]);
+
+  useEffect(() => {
+    if (creationState === 'camera_ready' || creationState === 'recording') {
+      attachCameraStream();
+    }
+  }, [attachCameraStream, creationState]);
 
   useEffect(() => {
     if (creationState !== 'recording') return;
@@ -119,16 +145,14 @@ const CreateGif: React.FC = () => {
     }
     try {
       stopCamera();
+      setCameraPreviewReady(false);
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'user' } },
         audio: false,
       });
       streamRef.current = stream;
-      if (cameraVideoRef.current) {
-        cameraVideoRef.current.srcObject = stream;
-        await cameraVideoRef.current.play();
-      }
       setCreationState('camera_ready');
+      window.requestAnimationFrame(attachCameraStream);
       setErrorMsg('');
     } catch {
       setCreationState('error');
@@ -463,7 +487,18 @@ const CreateGif: React.FC = () => {
           <div className="glass-strong rounded-3xl border border-fuchsia-500/30 neon-glow-purple overflow-hidden mb-5">
             <div className="relative aspect-[9/14] sm:aspect-video bg-black/70 flex items-center justify-center">
               {(creationState === 'camera_ready' || creationState === 'recording') ? (
-                <video ref={cameraVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
+                <video
+                  ref={cameraVideoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  onCanPlay={() => {
+                    setCameraPreviewReady(true);
+                    attachCameraStream();
+                  }}
+                  onPlaying={() => setCameraPreviewReady(true)}
+                  className="w-full h-full object-cover"
+                />
               ) : (
                 <div className="text-center px-6">
                   <div className="w-16 h-16 mx-auto rounded-full bg-fuchsia-500/10 border border-fuchsia-500/30 flex items-center justify-center mb-4">
@@ -471,6 +506,11 @@ const CreateGif: React.FC = () => {
                   </div>
                   <h2 className="text-2xl font-black text-white">Record a FWD</h2>
                   <p className="text-zinc-400 text-sm mt-2">10 seconds max. Turn this into a GIF.</p>
+                </div>
+              )}
+              {(creationState === 'camera_ready' || creationState === 'recording') && !cameraPreviewReady && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-sm font-semibold text-zinc-200">
+                  Starting camera...
                 </div>
               )}
               {creationState === 'recording' && (
