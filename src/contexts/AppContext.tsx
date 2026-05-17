@@ -122,8 +122,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const dbGifToGif = (g: any): Gif => ({
     id: g.id,
     title: g.title || 'Untitled',
-    image: g.gif_url || g.image_url || '',
-    still_url: g.still_url,
+    image: g.gif_url || g.image_url || g.media_url || g.preview_url || '',
+    still_url: g.still_url || g.thumbnail_url || g.preview_url,
     tags: g.tags || [],
     category: g.category || 'Reactions',
     mood: g.mood,
@@ -246,12 +246,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const createUserGif = useCallback(async (payload: CreateGifPayload): Promise<Gif | null> => {
     if (!user) return null;
-    const { data, error } = await supabase.from('fwd_gifs').insert({
+    const fullPayload = {
       owner_user_id: user.id,
       title: payload.title,
       caption: payload.caption ?? null,
       gif_url: payload.image,
+      media_url: payload.image,
       still_url: payload.still_url ?? null,
+      preview_url: payload.still_url ?? payload.image,
+      thumbnail_url: payload.still_url ?? payload.image,
       tags: payload.tags,
       category: payload.category,
       mood: payload.mood ?? null,
@@ -263,7 +266,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       height: payload.height ?? null,
       file_size_bytes: payload.file_size_bytes ?? null,
       duration_ms: payload.duration_ms ?? null,
-    }).select().single();
+    };
+
+    let { data, error } = await supabase.from('fwd_gifs').insert(fullPayload).select().single();
+
+    if (error) {
+      const legacyPayload = {
+        owner_user_id: user.id,
+        title: payload.title,
+        media_url: payload.image,
+        preview_url: payload.still_url ?? payload.image,
+        thumbnail_url: payload.still_url ?? payload.image,
+        tags: payload.tags,
+        category: payload.category,
+        visibility: payload.isPublic === false ? 'private' : 'public',
+        status: 'approved',
+      };
+      const legacyResult = await supabase.from('fwd_gifs').insert(legacyPayload).select().single();
+      data = legacyResult.data;
+      error = legacyResult.error;
+    }
 
     if (error || !data) return null;
 
