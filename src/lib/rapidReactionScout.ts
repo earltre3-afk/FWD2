@@ -80,7 +80,8 @@ export function reactionAssetToGif(asset: ReactionAsset): Gif {
   return {
     id: asset.id,
     title: asset.title,
-    image: asset.previewUrl || asset.gifUrl,
+    image: asset.gifUrl || asset.previewUrl,
+    still_url: asset.previewUrl && asset.previewUrl !== asset.gifUrl ? asset.previewUrl : undefined,
     tags: asset.tags || [],
     category: asset.source === 'fwd' ? 'Reactions' : 'Scout',
     mood: asset.source === 'fwd' ? undefined : 'Rapid Scout',
@@ -143,8 +144,11 @@ export function trackReactionSearch(event: string, payload: Record<string, unkno
   } catch {}
 }
 
+// Capture any scouted external GIF the user selects (giphy, tenor, or fallback).
+// This silently stores it into the FWD library so future searches find it locally.
 export function captureFallbackReaction(asset: ReactionAsset) {
-  if (asset.source !== 'fallback') return;
+  // Only capture externally-scouted results — skip native FWD library GIFs
+  if (asset.source === 'fwd') return;
   try {
     fetch('/api/reactions/capture', {
       method: 'POST',
@@ -164,6 +168,8 @@ export function captureFallbackReaction(asset: ReactionAsset) {
           height: asset.height,
           shareUrl: asset.shareUrl,
           contentRating: asset.contentRating,
+          attributionLabel: asset.attributionLabel,
+          attributionUrl: asset.attributionUrl,
         },
       }),
     }).catch(() => {});
@@ -173,14 +179,18 @@ export function captureFallbackReaction(asset: ReactionAsset) {
 export async function rapidReactionSearch({
   query,
   limit = DEFAULT_LIMIT,
+  cursor,
   signal,
 }: {
   query: string;
   limit?: number;
+  cursor?: string | null;
   signal?: AbortSignal;
 }): Promise<ReactionSearchResponse> {
   const normalized = normalizeReactionQuery(query);
-  const local = searchLocalReactions(normalized, limit);
+  // Only include local results on the first page (cursor absent / "0")
+  const isFirstPage = !cursor || cursor === '0';
+  const local = isFirstPage ? searchLocalReactions(normalized, limit) : [];
 
   if (!normalized || normalized.length < MIN_QUERY_LENGTH) {
     const results = local.length ? local : fallbackReactions(normalized, limit);
@@ -196,7 +206,7 @@ export async function rapidReactionSearch({
     };
   }
 
-  if (local.length >= limit) {
+  if (isFirstPage && local.length >= limit) {
     return {
       query: normalized,
       limit,
@@ -209,25 +219,27 @@ export async function rapidReactionSearch({
     };
   }
 
-  const cacheKey = `${normalized}:${limit}`;
+  const cacheKey = `${normalized}:${limit}:${cursor ?? ''}`;
   const cached = memoryCache.get(cacheKey);
   if (cached) {
+    const base = isFirstPage ? dedupeReactionAssets([...local, ...cached.results]).slice(0, limit) : cached.results;
     return {
       ...cached,
-      results: dedupeReactionAssets([...local, ...cached.results]).slice(0, limit),
-      sourcesUsed: Array.from(new Set(['fwd', ...cached.sourcesUsed])),
+      results: base,
+      sourcesUsed: Array.from(new Set([...(local.length ? ['fwd' as const] : []), ...cached.sourcesUsed])),
     };
   }
 
   const started = performance.now();
+  const cursorParam = cursor ? `&cursor=${encodeURIComponent(cursor)}` : '';
   try {
-    const response = await fetch(`/api/reactions/search?q=${encodeURIComponent(normalized)}&limit=${limit}`, {
-      signal,
-      headers: { Accept: 'application/json' },
-    });
+    const response = await fetch(
+      `/api/reactions/search?q=${encodeURIComponent(normalized)}&limit=${limit}${cursorParam}`,
+      { signal, headers: { Accept: 'application/json' } },
+    );
     if (!response.ok) throw new Error('Rapid Reaction Scout unavailable');
     const data = (await response.json()) as ReactionSearchResponse;
-    const merged = dedupeReactionAssets([...local, ...data.results]);
+    const merged = isFirstPage ? dedupeReactionAssets([...local, ...data.results]) : data.results;
     const fallback = merged.length ? [] : fallbackReactions(normalized, limit);
     const result: ReactionSearchResponse = {
       ...data,
@@ -238,23 +250,14 @@ export async function rapidReactionSearch({
       fallbackUsed: data.fallbackUsed || fallback.length > 0,
     };
     memoryCache.set(cacheKey, result);
-    if (result.hasMore && result.nextCursor) {
-      fetch(`/api/reactions/search?q=${encodeURIComponent(normalized)}&limit=${limit}&cursor=${encodeURIComponent(result.nextCursor)}`, {
-        headers: { Accept: 'application/json' },
-      })
-        .then(async (nextResponse) => {
-          if (!nextResponse.ok) return;
-          const nextData = (await nextResponse.json()) as ReactionSearchResponse;
-          memoryCache.set(`${normalized}:${limit}:${result.nextCursor}`, nextData);
-        })
-        .catch(() => {});
-    }
     trackReactionSearch('search_latency_ms', { query: normalized, latencyMs: Math.round(performance.now() - started) });
     return result;
   } catch (error) {
     if (signal?.aborted) throw error;
     trackReactionSearch('reaction_search_failed', { query: normalized });
-    const fallback = dedupeReactionAssets([...local, ...fallbackReactions(normalized, limit)]).slice(0, limit);
+    const fallback = isFirstPage
+      ? dedupeReactionAssets([...local, ...fallbackReactions(normalized, limit)]).slice(0, limit)
+      : fallbackReactions(normalized, limit);
     return {
       query: normalized,
       limit,

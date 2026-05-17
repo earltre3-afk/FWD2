@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Search as SearchIcon, Clock, TrendingUp, X, Sparkles, Bell, Zap } from 'lucide-react';
+import { Search as SearchIcon, Clock, TrendingUp, X, Sparkles, Bell, Zap, Loader2 } from 'lucide-react';
 import FwdLogo from '@/components/FwdLogo';
 import BottomNav from '@/components/BottomNav';
 import GifCard from '@/components/GifCard';
@@ -13,6 +13,8 @@ import { useRapidReactionScout } from '@/hooks/useRapidReactionScout';
 import type { ReactionAsset } from '@/types/reactions';
 import { supabase } from '@/lib/supabase';
 import FollowButton from '@/components/FollowButton';
+import AiGifScout from '@/components/gif/AiGifScout';
+import type { GifScoutResult } from '@/lib/gif-providers/types';
 
 interface UserResult {
   id: string;
@@ -27,13 +29,14 @@ const FILTERS = ['All', 'Reactions', 'Memes', 'TV & Movies', 'People', 'Music'];
 const SearchPage: React.FC = () => {
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
-  const { recentSearches, addRecentSearch, clearRecentSearches } = useAppContext();
-  const { signInWithEmail } = useAuth();
+  const { recentSearches, addRecentSearch, clearRecentSearches, refresh } = useAppContext();
+  const { signInWithEmail, user } = useAuth();
   const [query, setQuery] = useState(params.get('q') || '');
   const [filter, setFilter] = useState('All');
   const [userResults, setUserResults] = useState<UserResult[]>([]);
   const [userSearching, setUserSearching] = useState(false);
-  const { results: scoutResults, scouting, attribution, sourcesUsed } = useRapidReactionScout(query, 10);
+  const { results: scoutResults, loadMore, loadingMore, hasMore, attribution, sourcesUsed } = useRapidReactionScout(query, 20);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const q = params.get('q') || '';
@@ -46,6 +49,20 @@ const SearchPage: React.FC = () => {
     const f = filter.toLowerCase();
     return asset.tags.some((tag) => tag.toLowerCase().includes(f)) || asset.source !== 'fwd';
   });
+
+  // IntersectionObserver — fires loadMore when sentinel scrolls into view
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) loadMore();
+      },
+      { rootMargin: '200px' },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [loadMore]);
 
   useEffect(() => {
     const q = query.trim();
@@ -110,6 +127,59 @@ const SearchPage: React.FC = () => {
         tags: asset.tags,
       },
     });
+  };
+
+  const saveScoutedGif = async (gif: GifScoutResult) => {
+    if (!user) {
+      toast({ title: 'Sign in to save', description: 'Sign in to keep AI Scout GIFs in your library.' });
+      return;
+    }
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error('Missing session');
+      const response = await fetch('/api/gifs/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          provider: gif.provider,
+          providerGifId: gif.providerGifId,
+          title: gif.title,
+          originalQuery: query,
+          aiScoutQuery: gif.scoutQuery,
+          previewUrl: gif.previewUrl,
+          mediaUrl: gif.mediaUrl,
+          mp4Url: gif.mp4Url,
+          webmUrl: gif.webmUrl,
+          gifUrl: gif.gifUrl,
+          posterUrl: gif.posterUrl,
+          width: gif.width,
+          height: gif.height,
+          durationMs: gif.durationMs,
+          sourceUrl: gif.sourceUrl,
+          attribution: gif.attribution,
+          rating: gif.rating,
+          metadata: gif.metadata,
+        }),
+      });
+      if (!response.ok) throw new Error('Save failed');
+      await refresh();
+      toast({ title: 'Saved to your library', description: gif.title });
+      nav('/create', {
+        state: {
+          image: gif.gifUrl || gif.mediaUrl,
+          mediaType: (gif.mp4Url || gif.webmUrl || /\.(mp4|webm)(?:[?#].*)?$/i.test(gif.mediaUrl)) ? 'video/mp4' : 'image/gif',
+          title: gif.title,
+          tags: [gif.scoutQuery || query, gif.provider].filter(Boolean),
+        },
+      });
+    } catch {
+      toast({ title: "Couldn't save this GIF. Try again.", variant: 'destructive' });
+    }
   };
 
   return (
@@ -177,6 +247,8 @@ const SearchPage: React.FC = () => {
           ))}
         </div>
 
+        <AiGifScout query={query} context="search page" limit={8} onSelect={saveScoutedGif} />
+
         {query.trim().length >= 2 && (
           <div className="mb-5">
             <div className="flex items-center justify-between mb-2">
@@ -215,9 +287,6 @@ const SearchPage: React.FC = () => {
             <div className="flex items-center justify-between mb-3">
               <div>
                 <h3 className="text-base font-black text-white tracking-wider">SEARCH RESULTS</h3>
-                {scouting && (
-                  <p className="text-xs text-cyan-300 mt-0.5">Rapid Reaction Scout is pulling more options...</p>
-                )}
               </div>
               <span className="text-sm text-fuchsia-400 font-semibold">{results.length} Results</span>
             </div>
@@ -237,6 +306,21 @@ const SearchPage: React.FC = () => {
               <div className="mt-4 flex flex-wrap justify-center gap-2 text-[10px] uppercase tracking-wider text-zinc-500">
                 {attribution.map(item => <span key={item.source}>{item.label}</span>)}
               </div>
+            )}
+
+            {/* Infinite scroll sentinel */}
+            <div ref={sentinelRef} className="h-1" />
+
+            {loadingMore && (
+              <div className="flex justify-center py-6">
+                <Loader2 size={24} className="animate-spin text-fuchsia-400" />
+              </div>
+            )}
+
+            {!hasMore && results.length > 0 && (
+              <p className="text-center text-xs text-zinc-600 py-6 tracking-wider uppercase">
+                You've seen it all
+              </p>
             )}
           </>
         ) : (
