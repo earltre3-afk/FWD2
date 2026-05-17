@@ -34,6 +34,15 @@ type CreationState =
 
 const MAX_RECORD_SECONDS = 10;
 
+const extensionForMime = (type: string) => {
+  const clean = type.toLowerCase();
+  if (clean.includes('mp4')) return 'mp4';
+  if (clean.includes('quicktime') || clean.includes('mov')) return 'mov';
+  if (clean.includes('webm')) return 'webm';
+  if (clean.includes('gif')) return 'gif';
+  return 'bin';
+};
+
 const getRecorderMimeType = () => {
   if (typeof MediaRecorder === 'undefined') return '';
   // VP8 first — VP9 produces black frames on several Chrome versions
@@ -71,6 +80,7 @@ const CreateGif: React.FC = () => {
   const [stickerOverlay, setStickerOverlay] = useState<string | null>(null);
   const [trim, setTrim] = useState({ start: 0, end: 3 });
   const [previewUrl, setPreviewUrl] = useState(initialImage);
+  const [previewNonce, setPreviewNonce] = useState(() => Date.now());
   const [mediaType, setMediaType] = useState(initialMediaType);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [uploadedFromVault, setUploadedFromVault] = useState(Boolean(queryMediaUrl));
@@ -217,6 +227,7 @@ const CreateGif: React.FC = () => {
         setTrim({ start: 0, end: MAX_RECORD_SECONDS });
         if (!title.trim()) setTitle('My FWD');
         setPreviewUrl(url);
+        setPreviewNonce(Date.now());
         setCreationState('preview');
       };
       setRecordSeconds(0);
@@ -285,6 +296,7 @@ const CreateGif: React.FC = () => {
 
   const handleUploaded = useCallback((publicUrl: string, file: File) => {
     setPreviewUrl(publicUrl);
+    setPreviewNonce(Date.now());
     setMediaType(file.type);
     setUploadedFile(file);
     setUploadedFromVault(true);
@@ -340,6 +352,9 @@ const CreateGif: React.FC = () => {
 
     let gifBlob: Blob | null = null;
     let gifUrl = previewUrl;
+    let sourceVideoUrl: string | undefined;
+    let isAnimated = true;
+    const stamp = Date.now();
 
     try {
       // If we came from the camera page via router state, uploadedFile is null
@@ -351,7 +366,7 @@ const CreateGif: React.FC = () => {
         if (!resp.ok) throw new Error('Could not load your recording. Try again.');
         const blob = await resp.blob();
         const type = mediaType || blob.type || 'video/webm';
-        const ext = type.includes('mp4') ? 'mp4' : 'webm';
+        const ext = extensionForMime(type);
         effectiveFile = new File([blob], `clip-${Date.now()}.${ext}`, { type });
       }
 
@@ -363,7 +378,7 @@ const CreateGif: React.FC = () => {
         } else if (effectiveFile.type.startsWith('video/')) {
           // Video → encode to GIF
           setProgress(5);
-          const { videoFileToGif } = await import('@/lib/gifEncoder');
+          const { videoFileToGif, assertGifBlob } = await import('@/lib/gifEncoder');
           gifBlob = await videoFileToGif(effectiveFile, {
             width: 360,
             height: 360,
@@ -372,10 +387,16 @@ const CreateGif: React.FC = () => {
             endSec: Math.min(trim.end, trim.start + MAX_RECORD_SECONDS),
             onProgress: (pct) => setProgress(5 + Math.round(pct * 0.7)),
           });
+          await assertGifBlob(gifBlob, { requireAnimation: true });
+          const generatedPreview = URL.createObjectURL(gifBlob);
+          setPreviewUrl(generatedPreview);
+          setPreviewNonce(stamp);
+          setMediaType('image/gif');
         } else if (effectiveFile.type.startsWith('image/')) {
           // Static image → single-frame GIF
           const { imageFileToGif } = await import('@/lib/gifEncoder');
           gifBlob = await imageFileToGif(effectiveFile, { width: 320, height: 320 });
+          isAnimated = false;
         }
       }
 
@@ -383,18 +404,37 @@ const CreateGif: React.FC = () => {
       if (gifBlob) {
         setCreationState('uploading');
         setProgress(78);
-        const ext = 'gif';
-        const path = `${user.id}/${Date.now()}.${ext}`;
+        if (effectiveFile?.type.startsWith('video/')) {
+          const sourceExt = extensionForMime(effectiveFile.type);
+          const sourcePath = `${user.id}/source-${stamp}.${sourceExt}`;
+          const { data: sourceData } = await supabase.storage
+            .from('fwd-gifs')
+            .upload(sourcePath, effectiveFile, {
+              contentType: effectiveFile.type || 'video/mp4',
+              cacheControl: '3600',
+              upsert: false,
+            });
+          if (sourceData?.path) {
+            const { data: sourceUrlData } = supabase.storage.from('fwd-gifs').getPublicUrl(sourceData.path);
+            sourceVideoUrl = sourceUrlData.publicUrl;
+          }
+        }
+        const path = `${user.id}/${stamp}.gif`;
         const { data: storageData, error: storageErr } = await supabase.storage
           .from('fwd-gifs')
-          .upload(path, gifBlob, { contentType: 'image/gif', upsert: false });
+          .upload(path, gifBlob, { contentType: 'image/gif', cacheControl: '60', upsert: false });
 
-        if (storageErr) throw new Error(storageErr.message);
+        if (storageErr) throw new Error('Upload failed. Try again.');
 
         const { data: publicUrlData } = supabase.storage.from('fwd-gifs').getPublicUrl(storageData.path);
         gifUrl = publicUrlData.publicUrl;
         setPreviewUrl(gifUrl);
+        setPreviewNonce(stamp);
         setProgress(90);
+      }
+
+      if (gifUrl.startsWith('blob:')) {
+        throw new Error('Upload succeeded but preview URL failed. Try again.');
       }
 
       const aiMetadata = !aiApplied && gifUrl.startsWith('http')
@@ -419,6 +459,9 @@ const CreateGif: React.FC = () => {
         allow_download: allowDownload,
         source_type: gifBlob ? (uploadedFile?.type === 'image/gif' ? 'uploaded' : 'created') : 'external',
         file_size_bytes: gifBlob?.size,
+        source_video_url: sourceVideoUrl,
+        media_type: 'image/gif',
+        is_animated: isAnimated,
       });
 
       setProgress(100);
@@ -466,6 +509,12 @@ const CreateGif: React.FC = () => {
             <div className="rounded-2xl overflow-hidden border border-fuchsia-500/30 aspect-square max-w-[220px] mx-auto mb-6">
               <FwdAnimatedGif
                 gifUrl={savedGif.image}
+                stillUrl={savedGif.still_url}
+                sourceVideoUrl={savedGif.source_video_url}
+                mediaType={savedGif.media_type}
+                isAnimated={savedGif.is_animated}
+                mp4Url={savedGif.mp4_url}
+                webmUrl={savedGif.webm_url}
                 title={savedGif.title}
                 className="w-full h-full object-contain bg-black/60"
                 lazy={false}
@@ -654,21 +703,14 @@ const CreateGif: React.FC = () => {
         {/* Preview */}
         {previewUrl && (
         <div className="relative rounded-2xl overflow-hidden border border-fuchsia-500/40 neon-glow-purple aspect-square sm:aspect-video lg:aspect-square max-w-lg mx-auto mb-3">
-          {isVideo ? (
-            <video
-              key={previewUrl}
-              src={previewUrl}
-              muted autoPlay loop playsInline
-              className={`w-full h-full object-contain bg-black/80 ${filterStyle}`}
-            />
-          ) : (
-            <FwdAnimatedGif
-              gifUrl={previewUrl}
-              title={title}
-              className={`w-full h-full object-contain bg-black/80 ${filterStyle}`}
-              lazy={false}
-            />
-          )}
+          <FwdAnimatedGif
+            gifUrl={previewUrl}
+            mediaType={mediaType}
+            cacheKey={previewNonce}
+            title={title}
+            className={`w-full h-full object-contain bg-black/80 ${filterStyle}`}
+            lazy={false}
+          />
           <span className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/60 text-[10px] font-bold text-white border border-white/10">
             {isVideo ? 'VIDEO → GIF' : 'GIF'}
           </span>

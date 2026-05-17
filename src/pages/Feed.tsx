@@ -63,7 +63,17 @@ const PostComposer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                     onClick={() => setSelected(g)}
                     className="relative aspect-square rounded-xl overflow-hidden border-2 border-transparent hover:border-fuchsia-500 transition"
                   >
-                    <FwdMediaPlayer gifUrl={g.image} title={g.title} className="w-full h-full object-cover" />
+                    <FwdMediaPlayer
+                      mp4Url={g.mp4_url}
+                      webmUrl={g.webm_url}
+                      gifUrl={g.image}
+                      posterUrl={g.still_url}
+                      sourceVideoUrl={g.source_video_url}
+                      mediaType={g.media_type}
+                      isAnimated={g.is_animated}
+                      title={g.title}
+                      className="w-full h-full object-cover"
+                    />
                   </button>
                 ))}
               </div>
@@ -72,7 +82,19 @@ const PostComposer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         ) : (
           <>
             <div className="aspect-square rounded-2xl overflow-hidden border border-fuchsia-500/30 max-h-56 mx-auto mb-3">
-              <FwdMediaPlayer gifUrl={selected.image} title={selected.title} className="w-full h-full object-contain bg-black/60" objectFit="contain" lazy={false} />
+              <FwdMediaPlayer
+                mp4Url={selected.mp4_url}
+                webmUrl={selected.webm_url}
+                gifUrl={selected.image}
+                posterUrl={selected.still_url}
+                sourceVideoUrl={selected.source_video_url}
+                mediaType={selected.media_type}
+                isAnimated={selected.is_animated}
+                title={selected.title}
+                className="w-full h-full object-contain bg-black/60"
+                objectFit="contain"
+                lazy={false}
+              />
             </div>
             <button onClick={() => setSelected(null)} className="text-xs text-zinc-500 mb-3 flex items-center gap-1">
               <RefreshCw size={12} /> Change GIF
@@ -215,6 +237,11 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
           <FwdMediaPlayer
             gifUrl={post.gif.image}
             posterUrl={post.gif.still_url}
+            mp4Url={post.gif.mp4_url}
+            webmUrl={post.gif.webm_url}
+            sourceVideoUrl={post.gif.source_video_url}
+            mediaType={post.gif.media_type}
+            isAnimated={post.gif.is_animated}
             title={post.gif.title}
             className="w-full object-contain"
             style={{ maxHeight: '480px', display: 'block' } as React.CSSProperties}

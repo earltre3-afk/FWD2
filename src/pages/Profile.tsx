@@ -4,6 +4,7 @@ import { Settings, BadgeCheck, Bookmark, Layers, Play, Edit3, ChevronRight, Chev
 import FwdLogo from '@/components/FwdLogo';
 import BottomNav from '@/components/BottomNav';
 import GifCard from '@/components/GifCard';
+import FwdMediaPlayer from '@/components/FwdMediaPlayer';
 import { useAppContext, Gif } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/components/ui/use-toast';
@@ -438,7 +439,20 @@ const Profile: React.FC = () => {
                     <div className="grid grid-cols-2 gap-0.5 w-14 h-14 rounded-lg overflow-hidden bg-black/40">
                       {(c.gifIds.length ? c.gifIds : userGifs.slice(0, 4).map(g => g.id)).slice(0, 4).map(id => {
                         const g = userGifs.find(x => x.id === id) || savedLibrary.find(x => x.id === id);
-                        return g ? <img key={id} src={g.image} className="w-full h-full object-cover" /> : <div key={id} className="bg-zinc-800" />;
+                        return g ? (
+                          <FwdMediaPlayer
+                            key={id}
+                            mp4Url={g.mp4_url}
+                            webmUrl={g.webm_url}
+                            gifUrl={g.image}
+                            posterUrl={g.still_url}
+                            sourceVideoUrl={g.source_video_url}
+                            mediaType={g.media_type}
+                            isAnimated={g.is_animated}
+                            title={g.title}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : <div key={id} className="bg-zinc-800" />;
                       })}
                     </div>
                     <div className="flex-1 text-left">

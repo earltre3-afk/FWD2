@@ -7,6 +7,7 @@ import FollowButton from '@/components/FollowButton';
 import { supabase } from '@/lib/supabase';
 import { Gif } from '@/contexts/AppContext';
 import GifCard from '@/components/GifCard';
+import { resolveFwdMedia } from '@/lib/fwdMedia';
 
 interface ProfileRow {
   id: string;
@@ -60,10 +61,24 @@ const PublicProfile: React.FC = () => {
         following: followingRes.count || 0,
         saved: savedRes.count || 0,
       });
-      setGifs((g || []).map((row: any) => ({
-        id: row.id, title: row.title, image: row.image_url, tags: row.tags || [],
-        category: row.category || 'Reactions', mood: row.mood, user_id: row.user_id,
-      })));
+      setGifs((g || []).map((row: any) => {
+        const media = resolveFwdMedia(row);
+        return {
+          id: row.id,
+          title: row.title,
+          image: media.animatedUrl || '',
+          still_url: media.thumbnailUrl || undefined,
+          mp4_url: media.mp4Url || undefined,
+          webm_url: media.webmUrl || undefined,
+          source_video_url: media.sourceVideoUrl || undefined,
+          media_type: row.media_type || undefined,
+          is_animated: row.is_animated ?? media.isLikelyAnimated,
+          tags: row.tags || [],
+          category: row.category || 'Reactions',
+          mood: row.mood,
+          user_id: row.user_id,
+        };
+      }));
       setLoading(false);
     })();
     return () => { cancel = true; };

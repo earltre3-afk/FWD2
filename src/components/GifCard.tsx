@@ -50,6 +50,9 @@ const GifCard: React.FC<Props> = ({
         webmUrl={gif.webm_url}
         gifUrl={gif.image}
         posterUrl={gif.still_url}
+        sourceVideoUrl={gif.source_video_url}
+        mediaType={gif.media_type}
+        isAnimated={gif.is_animated}
         title={gif.title}
         className="w-full h-full object-cover"
         onError={() => setDead(true)}

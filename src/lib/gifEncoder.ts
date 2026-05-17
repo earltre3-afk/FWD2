@@ -7,6 +7,68 @@ export interface GifEncodeOptions {
   onProgress?: (pct: number) => void;
 }
 
+type GifAssertOptions = {
+  requireAnimation?: boolean;
+};
+
+const SAFARI_UA_RE = /^((?!chrome|android|crios|fxios|edgios).)*safari/i;
+const isSafari = () => typeof navigator !== 'undefined' && SAFARI_UA_RE.test(navigator.userAgent);
+
+function skipGifSubBlocks(bytes: Uint8Array, offset: number) {
+  let cursor = offset;
+  while (cursor < bytes.length) {
+    const size = bytes[cursor++];
+    if (!size) break;
+    cursor += size;
+  }
+  return cursor;
+}
+
+export function countGifFrames(bytes: Uint8Array) {
+  if (bytes.length < 13) return 0;
+  const header = String.fromCharCode(...bytes.slice(0, 6));
+  if (header !== 'GIF87a' && header !== 'GIF89a') return 0;
+
+  let offset = 13;
+  const globalColorTable = (bytes[10] & 0x80) !== 0;
+  if (globalColorTable) offset += 3 * (1 << ((bytes[10] & 0x07) + 1));
+
+  let frames = 0;
+  while (offset < bytes.length) {
+    const block = bytes[offset++];
+    if (block === 0x3b) break;
+    if (block === 0x21) {
+      offset++;
+      offset = skipGifSubBlocks(bytes, offset);
+      continue;
+    }
+    if (block === 0x2c) {
+      frames++;
+      const packed = bytes[offset + 8];
+      offset += 9;
+      if (packed & 0x80) offset += 3 * (1 << ((packed & 0x07) + 1));
+      offset++;
+      offset = skipGifSubBlocks(bytes, offset);
+      continue;
+    }
+    break;
+  }
+  return frames;
+}
+
+export async function assertGifBlob(blob: Blob, opts: GifAssertOptions = {}) {
+  if (blob.type && blob.type !== 'image/gif') {
+    throw new Error('GIF conversion failed. Try recording again.');
+  }
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const frames = countGifFrames(bytes);
+  if (frames === 0) throw new Error('GIF conversion failed. Try recording again.');
+  if (opts.requireAnimation && frames < 2) {
+    throw new Error('Created file was not animated. Record at least 2 seconds and try again.');
+  }
+  return { frames };
+}
+
 /**
  * Encodes a video File to an animated GIF Blob.
  * Lazy-loads gifenc so it's never in the initial bundle.
@@ -34,6 +96,9 @@ export async function videoFileToGif(
   video.src = url;
   video.muted = true;
   video.playsInline = true;
+  video.preload = 'auto';
+  video.setAttribute('playsinline', '');
+  video.setAttribute('webkit-playsinline', '');
 
   await new Promise<void>((res, rej) => {
     video.onloadedmetadata = () => res();
@@ -56,11 +121,12 @@ export async function videoFileToGif(
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
 
   const encoder = GIFEncoder();
+  const captureRealtime = !seekable || isSafari();
+  let framesEncoded = 0;
 
-  if (seekable) {
+  if (!captureRealtime) {
     // Uploaded file with proper duration — seek to each frame position
     const totalFrames = Math.ceil(((endSec - startSec) * 1000) / frameDurationMs);
-    let framesEncoded = 0;
     for (let t = startSec * 1000; t < endSec * 1000; t += frameDurationMs) {
       video.currentTime = t / 1000;
       await new Promise<void>((res) => {
@@ -76,9 +142,11 @@ export async function videoFileToGif(
       onProgress?.(Math.round((framesEncoded / totalFrames) * 100));
     }
   } else {
-    // MediaRecorder blob (duration=Infinity): play in real time and capture raw
-    // pixel data each frame. Encoding happens after playback so the heavy
-    // quantize() calls don't stall the video.
+    // MediaRecorder blobs and Safari recordings are captured during real
+    // decoded playback. iOS Safari can return stale first-frame pixels when
+    // seeking an off-screen video and drawing it to canvas.
+    // Encoding happens after playback so the heavy quantize() calls do not
+    // stall the video.
     //
     // Attach to DOM: off-screen video elements skip hardware decoding on some
     // Chrome builds, producing black drawImage() calls.
@@ -138,6 +206,7 @@ export async function videoFileToGif(
         const palette = quantize(data, 256);
         const index = applyPalette(data, palette);
         encoder.writeFrame(index, width, height, { palette, delay: gifDelay, repeat: 0 });
+        framesEncoded++;
         onProgress?.(Math.round(((i + 1) / rawFrames.length) * 100));
       }
 
@@ -152,7 +221,12 @@ export async function videoFileToGif(
   encoder.finish();
   URL.revokeObjectURL(url);
 
-  return new Blob([encoder.bytes()], { type: 'image/gif' });
+  const blob = new Blob([encoder.bytes()], { type: 'image/gif' });
+  if (framesEncoded < 2) {
+    throw new Error('Created file was not animated. Record at least 2 seconds and try again.');
+  }
+  await assertGifBlob(blob, { requireAnimation: true });
+  return blob;
 }
 
 /**

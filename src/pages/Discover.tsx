@@ -20,6 +20,12 @@ interface UploadRow {
   id: string;
   title: string;
   image_url: string;
+  still_url?: string | null;
+  source_video_url?: string | null;
+  media_type?: string | null;
+  is_animated?: boolean | null;
+  mp4_url?: string | null;
+  webm_url?: string | null;
   user_id: string;
   category?: string | null;
   created_at: string;
@@ -95,7 +101,7 @@ const Discover: React.FC = () => {
         .limit(48);
 
       const gifsQ = supabase.from('user_gifs')
-        .select('id, title, image_url, user_id, category, created_at')
+        .select('id, title, image_url, still_url, source_video_url, media_type, is_animated, mp4_url, webm_url, user_id, category, created_at')
         .eq('is_public', true)
         .order('created_at', { ascending: false })
         .limit(60);
@@ -248,7 +254,7 @@ const Discover: React.FC = () => {
                       onClick={() => nav(`/search?category=${encodeURIComponent(c.name)}`)}
                       className="relative h-20 rounded-2xl overflow-hidden border border-fuchsia-500/20 hover:border-fuchsia-500/60 transition group text-left"
                     >
-                      {c.cover && <img src={c.cover} className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-80 transition" />}
+                      {c.cover && <FwdMediaPlayer gifUrl={c.cover} className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-80 transition" />}
                       <div className="absolute inset-0 bg-gradient-to-tr from-black/85 via-black/40 to-transparent" />
                       <div className="relative h-full flex flex-col justify-end p-3">
                         <div className="text-white font-black text-sm truncate">{c.name}</div>
@@ -273,7 +279,16 @@ const Discover: React.FC = () => {
                       onClick={() => g.profile?.username ? nav(`/u/${g.profile.username}`) : null}
                       className="relative aspect-square rounded-xl overflow-hidden border border-fuchsia-500/20 hover:border-fuchsia-500/60 transition group"
                     >
-                      <FwdMediaPlayer gifUrl={g.image_url} className="w-full h-full object-cover" />
+                      <FwdMediaPlayer
+                        gifUrl={g.image_url}
+                        posterUrl={g.still_url ?? undefined}
+                        sourceVideoUrl={g.source_video_url ?? undefined}
+                        mediaType={g.media_type ?? undefined}
+                        isAnimated={g.is_animated}
+                        mp4Url={g.mp4_url ?? undefined}
+                        webmUrl={g.webm_url ?? undefined}
+                        className="w-full h-full object-cover"
+                      />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/0 to-transparent" />
                       <div className="absolute bottom-1.5 left-1.5 right-1.5">
                         <div className="text-[10px] text-white font-bold truncate">{g.title || 'Untitled FWD'}</div>

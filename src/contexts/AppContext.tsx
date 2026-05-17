@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUserMemory } from '@/hooks/useUserMemory';
+import { resolveFwdMedia } from '@/lib/fwdMedia';
 
 export interface Gif {
   id: string;
@@ -9,6 +10,9 @@ export interface Gif {
   image: string;       // gif_url in DB
   still_url?: string;
   webm_url?: string;
+  source_video_url?: string;
+  media_type?: string;
+  is_animated?: boolean;
   mp4_url?: string;    // H.264 MP4 rendition — pass as mp4Url to FwdMediaPlayer for Safari
   tags: string[];
   category: string;
@@ -93,6 +97,9 @@ export interface CreateGifPayload {
   height?: number;
   file_size_bytes?: number;
   duration_ms?: number;
+  source_video_url?: string;
+  media_type?: string;
+  is_animated?: boolean;
 }
 
 const defaultGuestCollections: Collection[] = [
@@ -126,43 +133,55 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [likedPostIds, setLikedPostIds] = useState<Set<string>>(new Set());
   const [savedPostIds, setSavedPostIds] = useState<Set<string>>(new Set());
 
-  const dbGifToGif = (g: any): Gif => ({
-    id: g.id,
-    title: g.title || 'Untitled',
-    image: g.gif_url || g.image_url || g.media_url || g.preview_url || '',
-    still_url: g.still_url || g.thumbnail_url || g.preview_url,
-    tags: g.tags || [],
-    category: g.category || 'Reactions',
-    mood: g.mood,
-    user_id: g.owner_user_id || g.user_id,
-    caption: g.caption,
-    allow_reuse: g.allow_reuse ?? true,
-    allow_download: g.allow_download ?? true,
-    reuse_count: g.reuse_count ?? 0,
-    save_count: g.save_count ?? 0,
-    like_count: g.like_count ?? 0,
-    visibility: g.visibility || 'public',
-    mp4_url: g.mp4_url,
-    webm_url: g.webm_url,
-    provider: g.provider,
-    provider_gif_id: g.provider_gif_id,
-  });
+  const dbGifToGif = (g: any): Gif => {
+    const media = resolveFwdMedia(g);
+    return {
+      id: g.id,
+      title: g.title || 'Untitled',
+      image: media.animatedUrl || '',
+      still_url: media.thumbnailUrl || undefined,
+      tags: g.tags || [],
+      category: g.category || 'Reactions',
+      mood: g.mood,
+      user_id: g.owner_user_id || g.user_id,
+      caption: g.caption,
+      allow_reuse: g.allow_reuse ?? true,
+      allow_download: g.allow_download ?? true,
+      reuse_count: g.reuse_count ?? 0,
+      save_count: g.save_count ?? 0,
+      like_count: g.like_count ?? 0,
+      visibility: g.visibility || 'public',
+      mp4_url: media.mp4Url || undefined,
+      webm_url: media.webmUrl || undefined,
+      source_video_url: media.sourceVideoUrl || undefined,
+      media_type: g.media_type || (media.mediaType === 'gif' ? 'image/gif' : media.mediaType === 'video' ? 'video/mp4' : undefined),
+      is_animated: g.is_animated ?? media.isLikelyAnimated,
+      provider: g.provider,
+      provider_gif_id: g.provider_gif_id,
+    };
+  };
 
-  const savedProviderGifToGif = (g: any): Gif => ({
-    id: `saved:${g.provider}:${g.provider_gif_id}`,
-    title: g.title || 'Saved GIF',
-    image: g.media_url || g.mp4_url || g.gif_url || g.preview_url || '',
-    still_url: g.poster_url || g.preview_url || undefined,
-    mp4_url: g.mp4_url || undefined,
-    webm_url: g.webm_url || undefined,
-    tags: [g.original_query, g.ai_scout_query, g.provider].filter(Boolean),
-    category: 'Scout',
-    mood: 'AI Scout',
-    user_id: g.user_id,
-    visibility: g.is_private === false ? 'public' : 'private',
-    provider: g.provider,
-    provider_gif_id: g.provider_gif_id,
-  });
+  const savedProviderGifToGif = (g: any): Gif => {
+    const media = resolveFwdMedia(g);
+    return {
+      id: `saved:${g.provider}:${g.provider_gif_id}`,
+      title: g.title || 'Saved GIF',
+      image: media.animatedUrl || '',
+      still_url: media.thumbnailUrl || undefined,
+      mp4_url: media.mp4Url || undefined,
+      webm_url: media.webmUrl || undefined,
+      source_video_url: media.sourceVideoUrl || undefined,
+      media_type: g.media_type || (media.mediaType === 'gif' ? 'image/gif' : media.mediaType === 'video' ? 'video/mp4' : undefined),
+      is_animated: g.is_animated ?? media.isLikelyAnimated,
+      tags: [g.original_query, g.ai_scout_query, g.provider].filter(Boolean),
+      category: 'Scout',
+      mood: 'AI Scout',
+      user_id: g.user_id,
+      visibility: g.is_private === false ? 'public' : 'private',
+      provider: g.provider,
+      provider_gif_id: g.provider_gif_id,
+    };
+  };
 
   const ensureProfile = useCallback(async () => {
     if (!user) return false;
@@ -314,8 +333,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       title: payload.title,
       caption: payload.caption ?? null,
       gif_url: payload.image,
+      media_url: payload.image,
       still_url: payload.still_url ?? null,
-      thumbnail_url: payload.still_url ?? payload.image,
+      thumbnail_url: payload.still_url ?? null,
+      preview_url: payload.still_url ?? null,
+      source_video_url: payload.source_video_url ?? null,
+      media_type: payload.media_type ?? 'image/gif',
+      is_animated: payload.is_animated ?? true,
       tags: payload.tags,
       category: payload.category,
       visibility: payload.isPublic === false ? 'private' : 'public',
@@ -410,7 +434,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       .from('fwd_feed_posts')
       .select(`
         *,
-        gif:gif_id ( id, gif_url, still_url, title, allow_reuse, allow_download, owner_user_id ),
+        gif:gif_id ( id, gif_url, media_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, title, allow_reuse, allow_download, owner_user_id ),
         profile:fwd_feed_posts_user_profiles_fk ( display_name, username, avatar_url )
       `)
       .eq('visibility', 'public')
@@ -439,7 +463,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: p.id,
       user_id: p.user_id,
       gif_id: p.gif_id,
-      gif: p.gif ? dbGifToGif({ ...p.gif, gif_url: p.gif.gif_url }) : null,
+      gif: p.gif ? dbGifToGif(p.gif) : null,
       caption: p.caption,
       visibility: p.visibility,
       like_count: p.like_count,
@@ -481,7 +505,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       visibility: 'public',
     }).select(`
       *,
-      gif:gif_id ( id, gif_url, still_url, title, allow_reuse, allow_download, owner_user_id ),
+      gif:gif_id ( id, gif_url, media_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, title, allow_reuse, allow_download, owner_user_id ),
       profile:fwd_feed_posts_user_profiles_fk ( display_name, username, avatar_url )
     `).single();
 
@@ -491,7 +515,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: data.id,
       user_id: data.user_id,
       gif_id: data.gif_id,
-      gif: data.gif ? dbGifToGif({ ...data.gif, gif_url: data.gif.gif_url }) : null,
+      gif: data.gif ? dbGifToGif(data.gif) : null,
       caption: data.caption,
       visibility: data.visibility,
       like_count: 0,

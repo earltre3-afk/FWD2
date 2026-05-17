@@ -10,6 +10,7 @@ import { Gif, useAppContext } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/components/ui/use-toast';
 import { supabase } from '@/lib/supabase';
+import { resolveFwdMedia } from '@/lib/fwdMedia';
 
 interface CommentRow {
   id: string;
@@ -46,11 +47,12 @@ const GifDetail: React.FC = () => {
         .maybeSingle();
       if (cancel) return;
       if (data) {
+        const media = resolveFwdMedia(data);
         setGif({
           id: data.id,
           title: data.title || 'Untitled FWD',
-          image: data.gif_url || data.media_url,
-          still_url: data.still_url || data.thumbnail_url || data.preview_url,
+          image: media.animatedUrl || '',
+          still_url: media.thumbnailUrl || undefined,
           tags: data.tags || [],
           category: data.category || 'Reactions',
           mood: data.mood || undefined,
@@ -58,6 +60,11 @@ const GifDetail: React.FC = () => {
           caption: data.caption || undefined,
           like_count: data.like_count || 0,
           visibility: data.visibility,
+          mp4_url: media.mp4Url || undefined,
+          webm_url: media.webmUrl || undefined,
+          source_video_url: media.sourceVideoUrl || undefined,
+          media_type: data.media_type || undefined,
+          is_animated: data.is_animated ?? media.isLikelyAnimated,
         });
         setLikeCount(data.like_count || 0);
       }
@@ -194,7 +201,19 @@ const GifDetail: React.FC = () => {
         ) : (
           <>
             <div className="relative rounded-3xl overflow-hidden glass-strong border border-fuchsia-500/40 neon-glow-purple aspect-square">
-              <FwdMediaPlayer gifUrl={gif.image} posterUrl={gif.still_url} title={gif.title} className="w-full h-full object-contain bg-black/60" objectFit="contain" lazy={false} />
+              <FwdMediaPlayer
+                mp4Url={gif.mp4_url}
+                webmUrl={gif.webm_url}
+                gifUrl={gif.image}
+                posterUrl={gif.still_url}
+                sourceVideoUrl={gif.source_video_url}
+                mediaType={gif.media_type}
+                isAnimated={gif.is_animated}
+                title={gif.title}
+                className="w-full h-full object-contain bg-black/60"
+                objectFit="contain"
+                lazy={false}
+              />
               <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
               <span className="absolute top-3 left-3 px-2.5 py-1 rounded-md bg-black/60 text-[11px] font-bold tracking-wider text-white border border-white/10">GIF</span>
               <button className="absolute bottom-3 right-3 w-10 h-10 rounded-full bg-black/60 backdrop-blur flex items-center justify-center border border-white/15">

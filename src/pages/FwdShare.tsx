@@ -14,6 +14,14 @@ interface SharePost {
   caption: string | null;
   gif_url: string | null;
   still_url: string | null;
+  media_url?: string | null;
+  thumbnail_url?: string | null;
+  preview_url?: string | null;
+  source_video_url?: string | null;
+  media_type?: string | null;
+  is_animated?: boolean | null;
+  mp4_url?: string | null;
+  webm_url?: string | null;
   is_public: boolean | null;
   user_id: string | null;
   profile?: { display_name: string | null; username: string | null; avatar_url: string | null } | null;
@@ -30,6 +38,14 @@ interface FeedShareRow {
     caption: string | null;
     gif_url: string | null;
     still_url: string | null;
+    media_url?: string | null;
+    thumbnail_url?: string | null;
+    preview_url?: string | null;
+    source_video_url?: string | null;
+    media_type?: string | null;
+    is_animated?: boolean | null;
+    mp4_url?: string | null;
+    webm_url?: string | null;
     visibility: string | null;
   } | null;
   profile?: { display_name: string | null; username: string | null; avatar_url: string | null } | null;
@@ -57,7 +73,7 @@ const FwdShare: React.FC = () => {
           caption,
           visibility,
           user_id,
-          gif:gif_id ( id, title, caption, gif_url, still_url, visibility ),
+          gif:gif_id ( id, title, caption, gif_url, media_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, mp4_url, webm_url, visibility ),
           profile:fwd_feed_posts_user_profiles_fk ( display_name, username, avatar_url )
         `)
         .eq('id', id)
@@ -74,8 +90,16 @@ const FwdShare: React.FC = () => {
           id: row.id,
           title: gif.title,
           caption: row.caption || gif.caption,
-          gif_url: gif.gif_url,
-          still_url: gif.still_url,
+          gif_url: gif.gif_url || gif.media_url,
+          media_url: gif.media_url,
+          still_url: gif.still_url || gif.thumbnail_url || gif.preview_url,
+          thumbnail_url: gif.thumbnail_url,
+          preview_url: gif.preview_url,
+          source_video_url: gif.source_video_url,
+          media_type: gif.media_type,
+          is_animated: gif.is_animated,
+          mp4_url: gif.mp4_url,
+          webm_url: gif.webm_url,
           is_public: row.visibility === 'public',
           user_id: row.user_id,
           profile: profile ?? null,
@@ -158,10 +182,15 @@ const FwdShare: React.FC = () => {
         </div>
 
         {/* GIF */}
-        {post?.gif_url ? (
+        {post?.gif_url || post?.source_video_url ? (
           <div className="relative bg-black/60 w-full">
             <FwdMediaPlayer
               gifUrl={post.gif_url}
+              mp4Url={post.mp4_url ?? undefined}
+              webmUrl={post.webm_url ?? undefined}
+              sourceVideoUrl={post.source_video_url ?? undefined}
+              mediaType={post.media_type ?? undefined}
+              isAnimated={post.is_animated}
               posterUrl={post.still_url ?? undefined}
               title={post.title ?? 'FWD'}
               className="w-full object-contain"

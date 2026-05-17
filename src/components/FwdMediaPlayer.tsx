@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Play } from 'lucide-react';
+import { resolveFwdMedia } from '@/lib/fwdMedia';
 
 type PlayState = 'loading' | 'playing' | 'blocked' | 'error' | 'unsupported';
 
@@ -12,6 +13,13 @@ export type FwdMediaPlayerProps = {
   gifUrl?: string | null;
   /** Still frame / poster shown while loading or on error */
   posterUrl?: string | null;
+  /** Original recorded video, used as a compatibility fallback for created FWDs */
+  sourceVideoUrl?: string | null;
+  /** Saved MIME type when known, e.g. image/gif or video/mp4 */
+  mediaType?: string | null;
+  isAnimated?: boolean | null;
+  /** Changes force a remount/load when Safari keeps a stale first frame */
+  cacheKey?: string | number | null;
   title?: string;
   className?: string;
   style?: React.CSSProperties;
@@ -60,6 +68,10 @@ export function FwdMediaPlayer({
   webmUrl,
   gifUrl,
   posterUrl,
+  sourceVideoUrl,
+  mediaType,
+  isAnimated,
+  cacheKey,
   title = 'FWD',
   className,
   style,
@@ -77,18 +89,31 @@ export function FwdMediaPlayer({
   const [imgErrored, setImgErrored] = useState(false);
 
   const safari = isSafari();
+  const resolved = resolveFwdMedia({
+    gif_url: gifUrl,
+    mp4_url: mp4Url,
+    webm_url: webmUrl,
+    poster_url: posterUrl,
+    source_video_url: sourceVideoUrl,
+    media_type: mediaType,
+    is_animated: isAnimated,
+    updated_at: cacheKey ? String(cacheKey) : undefined,
+  });
 
   // Resolve best video sources
-  const resolvedMp4 = mp4Url || (gifUrl && MP4_EXT_RE.test(gifUrl) ? gifUrl : null) || null;
-  const resolvedWebm = webmUrl || (gifUrl && WEBM_EXT_RE.test(gifUrl) ? gifUrl : null) || null;
+  const resolvedMp4 = resolved.mp4Url || null;
+  const resolvedWebm = resolved.webmUrl || null;
+  const resolvedGif = resolved.gifUrl || null;
+  const resolvedPoster = posterUrl || resolved.thumbnailUrl || null;
+  const fallbackVideo = resolved.shouldUseVideo && !resolvedMp4 && !resolvedWebm ? resolved.animatedUrl : null;
   // Safari-only: swap .gif → .mp4 for known GIF CDNs (giphy, tenor, gifs.com)
-  const safariSwap = gifUrl && GIF_EXT_RE.test(gifUrl) && safari ? safariGifToMp4(gifUrl) : '';
+  const safariSwap = resolvedGif && GIF_EXT_RE.test(resolvedGif) && safari ? safariGifToMp4(resolvedGif) : '';
 
-  const isVideoMode = !!(resolvedMp4 || resolvedWebm || safariSwap);
-  const isGifImgMode = !isVideoMode && !!gifUrl;
+  const isVideoMode = !!(resolvedMp4 || resolvedWebm || safariSwap || fallbackVideo);
+  const isGifImgMode = !isVideoMode && !!resolvedGif;
 
   // Key causes video remount when sources change; stable within a single render cycle
-  const videoKey = [resolvedMp4 || safariSwap, resolvedWebm].filter(Boolean).join('|');
+  const videoKey = [resolvedMp4 || safariSwap || fallbackVideo, resolvedWebm, cacheKey].filter(Boolean).join('|');
 
   const tryPlay = useCallback(async () => {
     const video = videoRef.current;
@@ -172,9 +197,9 @@ export function FwdMediaPlayer({
   useEffect(() => {
     setPlayState('loading');
     setImgErrored(false);
-  }, [mp4Url, webmUrl, gifUrl]);
+  }, [mp4Url, webmUrl, gifUrl, sourceVideoUrl, mediaType, isAnimated]);
 
-  if (!mp4Url && !webmUrl && !gifUrl) return null;
+  if (!resolved.animatedUrl && !resolvedMp4 && !resolvedWebm && !resolvedGif) return null;
 
   const hasOverlay = playState === 'blocked' || playState === 'error' || playState === 'unsupported';
   const objFit = objectFit !== 'cover' ? objectFit : undefined;
@@ -198,7 +223,7 @@ export function FwdMediaPlayer({
           loop={loop}
           playsInline
           preload={lazy ? 'metadata' : 'auto'}
-          poster={posterUrl ?? undefined}
+          poster={resolvedPoster ?? undefined}
           controls={controls}
           disablePictureInPicture
           controlsList="nodownload nofullscreen noremoteplayback"
@@ -215,6 +240,9 @@ export function FwdMediaPlayer({
           {resolvedMp4 && <source src={resolvedMp4} type="video/mp4" />}
           {safariSwap && !resolvedMp4 && <source src={safariSwap} type="video/mp4" />}
           {resolvedWebm && <source src={resolvedWebm} type="video/webm" />}
+          {fallbackVideo && !resolvedMp4 && !resolvedWebm && !safariSwap && (
+            <source src={fallbackVideo} type={MP4_EXT_RE.test(fallbackVideo) ? 'video/mp4' : WEBM_EXT_RE.test(fallbackVideo) ? 'video/webm' : mediaType || 'video/mp4'} />
+          )}
         </video>
 
         {playState === 'blocked' && (
@@ -233,8 +261,8 @@ export function FwdMediaPlayer({
 
         {(playState === 'error' || playState === 'unsupported') && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-center px-4">
-            {posterUrl
-              ? <img src={posterUrl} alt={title} className="w-full h-full object-contain" />
+            {resolvedPoster
+              ? <img src={resolvedPoster} alt={title} className="w-full h-full object-contain" />
               : <p className="text-zinc-400 text-xs">This FWD can't play in this browser yet.</p>
             }
           </div>
@@ -246,8 +274,8 @@ export function FwdMediaPlayer({
   // ── GIF / image mode ────────────────────────────────────────────────────────
   if (isGifImgMode) {
     const imgSrc = imgErrored
-      ? (posterUrl || '')
-      : (safari ? withCacheBust(gifUrl!, 'fwd_sf', '1') : gifUrl!);
+      ? (resolvedPoster || '')
+      : (safari ? withCacheBust(resolvedGif!, 'fwd_sf', String(cacheKey || resolved.cacheKey || '1')) : resolvedGif!);
     // Safari backdrop-filter compositing bug fix
     const safariStyle: React.CSSProperties = safari ? { WebkitBackfaceVisibility: 'hidden' } : {};
 
@@ -267,7 +295,7 @@ export function FwdMediaPlayer({
           onLoad?.();
         }}
         onError={() => {
-          if (!imgErrored && posterUrl) setImgErrored(true);
+          if (!imgErrored && resolvedPoster) setImgErrored(true);
           else onError?.();
         }}
       />

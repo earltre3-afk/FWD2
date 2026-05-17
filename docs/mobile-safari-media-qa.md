@@ -1,81 +1,93 @@
 # Mobile Safari Media QA Checklist
 
-Run this checklist on every release that touches `FwdMediaPlayer`, `FwdAnimatedGif`, or any page that renders GIFs/videos.
+Run this checklist on every release that touches `FwdMediaPlayer`, `FwdAnimatedGif`, CreateGif, CameraCapture, or any page that renders GIFs/videos.
 
----
-
-## Devices & browsers to test
+## Devices And Browsers
 
 | Device | Browser | Min OS |
 |--------|---------|--------|
-| iPhone (any model) | Safari | iOS 15 |
-| iPhone (any model) | Chrome for iOS | iOS 15 |
+| iPhone | Safari | iOS 15 |
+| iPhone | Chrome for iOS | iOS 15 |
 | iPad | Safari | iPadOS 15 |
 | Mac | Safari | macOS 12 |
 | Android | Chrome | Android 10 |
 | Desktop | Chrome | latest |
 | Desktop | Firefox | latest |
 
----
-
 ## Checklist
 
-### 1 — Autoplay (muted loop)
+### 1 - Autoplay
 
 - [ ] GIFs on the Feed start playing automatically without user interaction on Mobile Safari
 - [ ] GIFs on Discover start playing automatically without user interaction on Mobile Safari
 - [ ] GIF on GifDetail starts playing automatically
-- [ ] GIF on the public Share page (`/s/:id`) starts playing automatically (signed-out visitor)
+- [ ] GIF on the public Share page (`/f/:id`) starts playing automatically for a signed-out visitor
 - [ ] GIF thumbnails in GifCard grid start playing automatically
 
-### 2 — Tap-to-play fallback
+### 2 - Tap-To-Play Fallback
 
-- [ ] When autoplay is suppressed (e.g., Low Power Mode on iOS), a **Tap to play** overlay appears over the video
+- [ ] When autoplay is suppressed, a Tap to play overlay appears over the video
 - [ ] Tapping the overlay starts playback
 - [ ] After tapping, the overlay disappears and the video loops
 
-### 3 — Visibility & background recovery
+### 3 - Visibility Recovery
 
 - [ ] Switching the tab away and returning resumes playback on blocked videos
 - [ ] Locking the phone and unlocking resumes playback
 - [ ] Sending the app to background on iPhone and returning resumes playback
 
-### 4 — Viewport-based play / pause
+### 4 - Viewport Play/Pause
 
-- [ ] Videos that scroll out of view pause (not just muted — actually paused)
+- [ ] Videos that scroll out of view pause
 - [ ] Videos that scroll back into view resume without user interaction
 
-### 5 — Format & source ordering
+### 5 - Format And Source Ordering
 
-- [ ] If a `mp4Url` prop is provided, the browser loads the MP4, not the WebM
-- [ ] If only `webmUrl` is provided, the browser falls back to WebM
-- [ ] If only `gifUrl` pointing to a `.gif` is provided, it renders as `<img>` on non-Safari and as `<video>` (after `.gif → .mp4` swap) on Safari for known CDNs (giphy, tenor)
+- [ ] If `mp4Url` is provided, the browser loads MP4 before WebM
+- [ ] If only `webmUrl` is provided, non-Safari browsers fall back to WebM
+- [ ] If `gifUrl` points to a real `.gif`, it renders with a plain `<img>`
+- [ ] Known GIF CDN `.gif` URLs can use the Safari MP4 swap when available
+- [ ] `thumbnail_url`, `still_url`, and `preview_url` are poster/fallback fields, not the main animated source
 
-### 6 — Error & unsupported states
+### 6 - Error And Unsupported States
 
-- [ ] If a video URL 404s, the poster image is shown (if available), otherwise the "This FWD can't play in this browser yet." message appears
-- [ ] The error state does not crash the page or throw an uncaught exception
-- [ ] A broken 1×1 pixel placeholder GIF triggers `onError` (GifCard removes itself, GifDetail shows nothing)
+- [ ] If a video URL 404s, the poster image is shown when available
+- [ ] If no poster is available, the user sees a clean playback message
+- [ ] The error state does not crash the page
+- [ ] A broken 1x1 placeholder GIF triggers `onError`
 
-### 7 — Blob URL lifecycle (CreateGif / CameraCapture)
+### 7 - Blob URL Lifecycle
 
-- [ ] Recording a clip → retaking → recording again does not leak blob URLs (check DevTools memory)
+- [ ] Recording a clip, retaking, and recording again does not leak blob URLs
 - [ ] Navigating away from CreateGif revokes the preview blob URL
-- [ ] `useClip` in CameraCapture revokes the preview blob before creating the navigation blob URL
-- [ ] The blob URL passed to `/create` via router state is revoked by CreateGif after the GIF is uploaded
+- [ ] CameraCapture creates a fresh navigation blob URL for `/create`
+- [ ] The blob URL passed to `/create` is revoked by CreateGif after upload
+- [ ] After conversion, the CreateGif preview uses the generated animated GIF blob, not the recorded video poster
+- [ ] No `blob:` URL is saved in `gif_url`, `media_url`, or `source_video_url`
 
-### 8 — Public Share page (signed-out)
+### 8 - User-Created GIF Pipeline
 
-- [ ] `/s/:id` loads without authentication
+- [ ] Create a GIF from a 10-second iPhone Safari recording
+- [ ] Confirm preview animates before save
+- [ ] Save it to library
+- [ ] Confirm library card animates
+- [ ] Open feed and confirm the created GIF animates
+- [ ] Open public `/f/:id` and confirm it animates
+- [ ] Open profile grid and confirm it animates
+- [ ] Refresh the page and confirm it still animates
+- [ ] Sign out and open the public share link and confirm it animates if public
+- [ ] Confirm normal external/search GIFs still animate
+
+### 9 - Public Share Page
+
+- [ ] `/f/:id` loads without authentication
 - [ ] The GIF plays on Mobile Safari without sign-in
-- [ ] The "Forward this FWD" share button works on iOS (uses native share sheet when available)
-- [ ] "Join FWD" / "Sign in" CTAs render correctly for unauthenticated visitors
-
----
+- [ ] The Forward this FWD share button works on iOS
+- [ ] Join FWD and Sign in CTAs render correctly for unauthenticated visitors
 
 ## Notes
 
-- `FwdMediaPlayer` uses `display: contents` on its wrapper div in the normal (no-overlay) state so the `<video>` or `<img>` element receives `className`/`style` directly — layout is identical to the old `FwdAnimatedGif` in those states.
-- The `muted` and `playsInline` attributes are set both declaratively (JSX) and imperatively (`useEffect`) because Safari can lose these attributes across hydration.
-- `preload="metadata"` is used when `lazy={true}` to avoid downloading the full video before it's near the viewport.
-- The `IntersectionObserver` threshold is `0.2` — adjust in `FwdMediaPlayer.tsx` if pause/resume behaviour feels off in dense feed layouts.
+- `FwdMediaPlayer` keeps real GIF files on a plain `<img>` path so Safari does not receive an optimized still frame.
+- Muted loop videos set `muted`, `playsInline`, and `webkit-playsinline` both declaratively and imperatively for Safari.
+- `preload="metadata"` is used for lazy video previews.
+- Created FWDs save `gif_url` as the animated GIF, `thumbnail_url`/`still_url` as poster-only fields, and `source_video_url` as an optional compatibility fallback.

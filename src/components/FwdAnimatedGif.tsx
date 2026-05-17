@@ -4,6 +4,12 @@ import { FwdMediaPlayer } from './FwdMediaPlayer';
 export type FwdAnimatedGifProps = {
   gifUrl: string;
   stillUrl?: string;
+  sourceVideoUrl?: string;
+  mediaType?: string;
+  isAnimated?: boolean | null;
+  mp4Url?: string;
+  webmUrl?: string;
+  cacheKey?: string | number | null;
   title?: string;
   className?: string;
   style?: React.CSSProperties;
@@ -22,6 +28,12 @@ const WEBM_EXT_RE = /\.(webm|ogv|ogg)(?:[?#].*)?$/i;
 export function FwdAnimatedGif({
   gifUrl,
   stillUrl,
+  sourceVideoUrl,
+  mediaType,
+  isAnimated,
+  mp4Url,
+  webmUrl,
+  cacheKey,
   title,
   className,
   style,
@@ -35,10 +47,14 @@ export function FwdAnimatedGif({
 
   return (
     <FwdMediaPlayer
-      mp4Url={isMp4 ? gifUrl : null}
-      webmUrl={isWebm ? gifUrl : null}
+      mp4Url={mp4Url || (isMp4 ? gifUrl : null)}
+      webmUrl={webmUrl || (isWebm ? gifUrl : null)}
       gifUrl={isMp4 || isWebm ? null : gifUrl}
       posterUrl={stillUrl}
+      sourceVideoUrl={sourceVideoUrl}
+      mediaType={mediaType}
+      isAnimated={isAnimated}
+      cacheKey={cacheKey}
       title={title}
       className={className}
       style={style}
