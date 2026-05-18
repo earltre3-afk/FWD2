@@ -27,3 +27,10 @@ dist-ssr
 .env.seed
 supabase/.temp/
 *.timestamp-*.mjs
+
+# Android signing — NEVER commit these
+*.jks
+*.keystore
+android/key.properties
+android/app/*.jks
+android/app/*.keystore

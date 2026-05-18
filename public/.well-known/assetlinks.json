@@ -1,1 +1,12 @@
-[]
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.treytv.fwd",
+      "sha256_cert_fingerprints": [
+        "73:79:23:86:5E:4B:29:D4:7D:77:37:D2:DB:42:D5:21:7B:CA:1C:E1:E7:67:A7:DE:39:E2:A4:9D:17:B0:A3:91"
+      ]
+    }
+  }
+]
