@@ -16,6 +16,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/components/ui/use-toast';
 import { supabase } from '@/lib/supabase';
 import { resolveFwdMedia } from '@/lib/fwdMedia';
+import { editMetadataFromDb } from '@/lib/mediaEdits';
 import { copyFwdLink, getFwdShareUrl, shareFwdItem } from '@/lib/fwdShare';
 import { stopActionEvent } from '@/lib/actionEvents';
 import NotificationBell from '@/components/NotificationBell';
@@ -64,7 +65,7 @@ const GifDetail: React.FC = () => {
   const { id } = useParams();
   const nav = useNavigate();
   const { toggleFavorite, isFavorite } = useAppContext();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [gif, setGif] = useState<Gif | null>(() => findGif(id || '') || null);
   const [loading, setLoading] = useState(Boolean(uuidLike(id)));
   const [liked, setLiked] = useState(false);
@@ -117,6 +118,17 @@ const GifDetail: React.FC = () => {
           is_animated: data.is_animated ?? media.isLikelyAnimated,
           allow_reuse: data.allow_reuse ?? true,
           allow_download: data.allow_download ?? true,
+          trim_start: data.trim_start ?? null,
+          trim_end: data.trim_end ?? null,
+          original_duration: data.original_duration ?? null,
+          edited_duration: data.edited_duration ?? null,
+          crop_x: data.crop_x ?? null,
+          crop_y: data.crop_y ?? null,
+          crop_width: data.crop_width ?? null,
+          crop_height: data.crop_height ?? null,
+          crop_aspect_ratio: data.crop_aspect_ratio ?? null,
+          output_aspect_ratio: data.output_aspect_ratio ?? null,
+          edit_metadata: editMetadataFromDb(data),
         });
         setLikeCount(data.like_count || 0);
       }
@@ -134,27 +146,42 @@ const GifDetail: React.FC = () => {
         user
           ? supabase.from('gif_likes').select('id').eq('gif_id', id).eq('user_id', user.id).maybeSingle()
           : Promise.resolve({ data: null }),
+        // No profile join — gif_comments.user_id FKs to auth.users, not profiles.
+        // Profiles are fetched separately below.
         supabase
           .from('gif_comments')
-          .select('id, body, created_at, user_id, reply_gif_url, reply_gif_id, profile:user_id(display_name, username, avatar_url)')
+          .select('id, body, created_at, user_id, reply_gif_url, reply_gif_id')
           .eq('gif_id', id)
           .order('created_at', { ascending: true })
           .limit(50),
+        // No profile join — gif_reactions.user_id FKs to auth.users, not profiles.
         supabase
           .from('gif_reactions')
-          .select('id, user_id, reaction_gif_url, reaction_gif_id, reaction_key, reaction_label, reaction_emoji, profile:user_id(display_name, username)')
+          .select('id, user_id, reaction_gif_url, reaction_gif_id, reaction_key, reaction_label, reaction_emoji')
           .eq('gif_id', id)
           .limit(30),
       ]);
       if (cancel) return;
       setLiked(Boolean(likeRows));
+
+      // Fetch profiles for comment authors in a single separate query
+      const commentUserIds = [...new Set((commentRows || []).map((c: any) => c.user_id as string))];
+      const profilesMap = new Map<string, { display_name: string | null; username: string | null; avatar_url: string | null }>();
+      if (commentUserIds.length > 0) {
+        const { data: profileRows } = await supabase
+          .from('profiles')
+          .select('id, display_name, username, avatar_url')
+          .in('id', commentUserIds);
+        (profileRows || []).forEach((p: any) => profilesMap.set(p.id, p));
+      }
+
       setComments((commentRows || []).map((row: any) => ({
         ...row,
-        profile: Array.isArray(row.profile) ? row.profile[0] : row.profile,
+        profile: profilesMap.get(row.user_id) ?? null,
       })));
       setReactions((reactionRows || []).map((row: any) => ({
         ...row,
-        profile: Array.isArray(row.profile) ? row.profile[0] : row.profile,
+        profile: null,
       })));
     })();
     return () => { cancel = true; };
@@ -168,7 +195,7 @@ const GifDetail: React.FC = () => {
     const copied = shareId
       ? await copyFwdLink(shareId)
       : await navigator.clipboard.writeText(`${window.location.origin}/gif/${gif.id}`).then(() => true).catch(() => false);
-    toast({ title: copied ? 'FWD link copied.' : 'Couldn’t share or copy this FWD.', variant: copied ? 'default' : 'destructive' });
+    toast({ title: copied ? 'FWD link copied.' : "Couldn't share or copy this FWD.", variant: copied ? 'default' : 'destructive' });
   };
 
   // Share
@@ -185,7 +212,7 @@ const GifDetail: React.FC = () => {
       : 'failed';
     setShareBusy(false);
     if (result === 'copied') toast({ title: 'FWD link copied.' });
-    if (result === 'failed') toast({ title: 'Share failed', description: 'Couldn’t share or copy this FWD.', variant: 'destructive' });
+    if (result === 'failed') toast({ title: 'Share failed', description: "Couldn't share or copy this FWD.", variant: 'destructive' });
     if (result !== 'cancelled' && uuidLike(gif.id)) {
       supabase.from('gif_shares').insert({
         gif_id: gif.id,
@@ -222,12 +249,15 @@ const GifDetail: React.FC = () => {
     setLikeCount(v => Math.max(0, v + (liked ? -1 : 1)));
     const { error } = liked
       ? await supabase.from('gif_likes').delete().eq('gif_id', gif.id).eq('user_id', user.id)
-      : await supabase.from('gif_likes').upsert({ gif_id: gif.id, user_id: user.id }, { onConflict: 'user_id,gif_id' });
+      : await supabase.from('gif_likes').upsert(
+          { gif_id: gif.id, user_id: user.id },
+          { onConflict: 'user_id,gif_id', ignoreDuplicates: true }
+        );
     setLikeBusy(false);
     if (error) {
       setLiked(liked);
       setLikeCount(v => Math.max(0, v + (liked ? 1 : -1)));
-      toast({ title: 'Couldn’t like this FWD. Try again.', variant: 'destructive' });
+      toast({ title: "Couldn't like this FWD. Try again.", variant: 'destructive' });
     }
   };
 
@@ -257,18 +287,22 @@ const GifDetail: React.FC = () => {
         reply_gif_id: replyGif && uuidLike(replyGif.id) ? replyGif.id : null,
         reply_gif_url: replyGif?.image || null,
       })
-      .select('id, body, created_at, user_id, reply_gif_url, reply_gif_id, profile:user_id(display_name, username, avatar_url)')
+      .select('id, body, created_at, user_id, reply_gif_url, reply_gif_id')
       .single();
     setCommentBusy(false);
     if (error || !data) {
-      toast({ title: 'Comment couldn’t post. Try again.', variant: 'destructive' });
+      toast({ title: "Comment couldn't post. Try again.", variant: 'destructive' });
       return;
     }
     setComment('');
     setReplyGif(null);
     setComments(prev => [...prev, {
       ...data,
-      profile: Array.isArray((data as any).profile) ? (data as any).profile[0] : (data as any).profile,
+      profile: {
+        display_name: (profile as any)?.display_name ?? null,
+        username: (profile as any)?.username ?? null,
+        avatar_url: (profile as any)?.avatar_url ?? null,
+      },
     } as CommentRow]);
   };
 
@@ -306,7 +340,7 @@ const GifDetail: React.FC = () => {
       }).eq('id', existing.id);
       if (error) {
         setReactions(prev => prev.map(r => r.id === existing.id ? existing : r));
-        toast({ title: 'Couldn’t save reaction.', variant: 'destructive' });
+        toast({ title: "Couldn't save reaction.", variant: 'destructive' });
       }
     } else {
       const { data, error } = await supabase
@@ -320,17 +354,17 @@ const GifDetail: React.FC = () => {
           reaction_gif_id: null,
           reaction_gif_url: null,
         })
-        .select('id, user_id, reaction_gif_url, reaction_gif_id, reaction_key, reaction_label, reaction_emoji, profile:user_id(display_name, username)')
+        .select('id, user_id, reaction_gif_url, reaction_gif_id, reaction_key, reaction_label, reaction_emoji')
         .single();
       if (data) {
         setReactions(prev => prev.map(r => r.id === optimistic.id ? {
           ...data,
-          profile: Array.isArray((data as any).profile) ? (data as any).profile[0] : (data as any).profile,
+          profile: null,
         } as ReactionRow : r));
       }
       if (error) {
         setReactions(prev => prev.filter(r => r.id !== optimistic.id));
-        toast({ title: 'Couldn’t save reaction.', variant: 'destructive' });
+        toast({ title: "Couldn't save reaction.", variant: 'destructive' });
       }
     }
     setReactionBusy(false);
@@ -357,6 +391,17 @@ const GifDetail: React.FC = () => {
         tags: gif.tags,
         mood: gif.mood,
         caption: gif.caption,
+        trim_start: gif.trim_start,
+        trim_end: gif.trim_end,
+        original_duration: gif.original_duration,
+        edited_duration: gif.edited_duration,
+        crop_x: gif.crop_x,
+        crop_y: gif.crop_y,
+        crop_width: gif.crop_width,
+        crop_height: gif.crop_height,
+        crop_aspect_ratio: gif.crop_aspect_ratio,
+        output_aspect_ratio: gif.output_aspect_ratio,
+        edit_metadata: gif.edit_metadata,
       },
     });
   };
@@ -441,6 +486,15 @@ const GifDetail: React.FC = () => {
                 sourceVideoUrl={gif.source_video_url}
                 mediaType={gif.media_type}
                 isAnimated={gif.is_animated}
+                editMetadata={gif.edit_metadata}
+                trimStart={gif.trim_start}
+                trimEnd={gif.trim_end}
+                cropX={gif.crop_x}
+                cropY={gif.crop_y}
+                cropWidth={gif.crop_width}
+                cropHeight={gif.crop_height}
+                cropAspectRatio={gif.crop_aspect_ratio}
+                outputAspectRatio={gif.output_aspect_ratio}
                 title={gif.title}
                 className="w-full h-full object-contain bg-black/60"
                 objectFit="contain"

@@ -7,6 +7,7 @@ import FwdLogo from '@/components/FwdLogo';
 import FwdMediaPlayer from '@/components/FwdMediaPlayer';
 import { shareFwdItem, recordShare, trackShareOpen, getFwdShareUrl } from '@/lib/fwdShare';
 import { toast } from '@/components/ui/use-toast';
+import { editMetadataFromDb, MediaEditMetadata } from '@/lib/mediaEdits';
 
 interface SharePost {
   id: string;
@@ -24,6 +25,7 @@ interface SharePost {
   webm_url?: string | null;
   is_public: boolean | null;
   user_id: string | null;
+  edit_metadata?: MediaEditMetadata | null;
   profile?: { display_name: string | null; username: string | null; avatar_url: string | null } | null;
 }
 
@@ -46,6 +48,17 @@ interface FeedShareRow {
     is_animated?: boolean | null;
     mp4_url?: string | null;
     webm_url?: string | null;
+    trim_start?: number | null;
+    trim_end?: number | null;
+    original_duration?: number | null;
+    edited_duration?: number | null;
+    crop_x?: number | null;
+    crop_y?: number | null;
+    crop_width?: number | null;
+    crop_height?: number | null;
+    crop_aspect_ratio?: string | null;
+    output_aspect_ratio?: string | null;
+    edit_metadata?: Record<string, unknown> | null;
     visibility: string | null;
   } | null;
   profile?: { display_name: string | null; username: string | null; avatar_url: string | null } | null;
@@ -73,7 +86,7 @@ const FwdShare: React.FC = () => {
           caption,
           visibility,
           user_id,
-          gif:gif_id ( id, title, caption, gif_url, media_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, mp4_url, webm_url, visibility ),
+          gif:gif_id ( id, title, caption, gif_url, media_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, mp4_url, webm_url, visibility, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata ),
           profile:fwd_feed_posts_user_profiles_fk ( display_name, username, avatar_url )
         `)
         .eq('id', id)
@@ -100,6 +113,15 @@ const FwdShare: React.FC = () => {
           is_animated: gif.is_animated,
           mp4_url: gif.mp4_url,
           webm_url: gif.webm_url,
+          trim_start: gif.trim_start,
+          trim_end: gif.trim_end,
+          crop_x: gif.crop_x,
+          crop_y: gif.crop_y,
+          crop_width: gif.crop_width,
+          crop_height: gif.crop_height,
+          crop_aspect_ratio: gif.crop_aspect_ratio,
+          output_aspect_ratio: gif.output_aspect_ratio,
+          edit_metadata: editMetadataFromDb(gif as any),
           is_public: row.visibility === 'public',
           user_id: row.user_id,
           profile: profile ?? null,
@@ -196,6 +218,15 @@ const FwdShare: React.FC = () => {
               mediaType={post.media_type ?? undefined}
               isAnimated={post.is_animated}
               posterUrl={post.still_url ?? undefined}
+              editMetadata={post.edit_metadata}
+              trimStart={(post as any).trim_start}
+              trimEnd={(post as any).trim_end}
+              cropX={(post as any).crop_x}
+              cropY={(post as any).crop_y}
+              cropWidth={(post as any).crop_width}
+              cropHeight={(post as any).crop_height}
+              cropAspectRatio={(post as any).crop_aspect_ratio}
+              outputAspectRatio={(post as any).output_aspect_ratio}
               title={post.title ?? 'FWD'}
               className="w-full object-contain"
               style={{ maxHeight: '480px', display: 'block' } as React.CSSProperties}

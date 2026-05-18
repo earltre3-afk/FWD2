@@ -15,6 +15,16 @@ import { toast } from '@/components/ui/use-toast';
 import FwdAnimatedGif from '@/components/FwdAnimatedGif';
 import { categorizeGif, GifCategorization } from '@/lib/aiCategorizer';
 import NotificationBell from '@/components/NotificationBell';
+import {
+  DEFAULT_MEDIA_EDIT_STATE,
+  MAX_GIF_DURATION_SECONDS,
+  buildEditMetadata,
+  centeredCropForRatio,
+  clampTrim,
+  formatDuration,
+  ratioToNumber,
+  type MediaEditState,
+} from '@/lib/mediaEdits';
 
 const TOOLS = [
   { id: 'trim', icon: Scissors, label: 'Trim' },
@@ -33,7 +43,7 @@ type CreationState =
   | 'idle' | 'camera_ready' | 'recording' | 'processing' | 'preview' | 'file_selected' | 'editing'
   | 'generating' | 'uploading' | 'saved' | 'posted' | 'error';
 
-const MAX_RECORD_SECONDS = 10;
+const MAX_RECORD_SECONDS = MAX_GIF_DURATION_SECONDS;
 
 const extensionForMime = (type: string) => {
   const clean = type.toLowerCase();
@@ -79,7 +89,20 @@ const CreateGif: React.FC = () => {
   const [filter, setFilter] = useState('None');
   const [textOverlay, setTextOverlay] = useState('');
   const [stickerOverlay, setStickerOverlay] = useState<string | null>(null);
-  const [trim, setTrim] = useState({ start: 0, end: 3 });
+  const [editState, setEditState] = useState<MediaEditState>(() => ({
+    ...DEFAULT_MEDIA_EDIT_STATE,
+    trimStart: Number(state.trim_start ?? state.edit_metadata?.trimStart ?? 0),
+    trimEnd: Number(state.trim_end ?? state.edit_metadata?.trimEnd ?? DEFAULT_MEDIA_EDIT_STATE.trimEnd),
+    duration: Number(state.original_duration ?? state.edit_metadata?.duration ?? 0),
+    cropX: Number(state.crop_x ?? state.edit_metadata?.cropX ?? DEFAULT_MEDIA_EDIT_STATE.cropX),
+    cropY: Number(state.crop_y ?? state.edit_metadata?.cropY ?? DEFAULT_MEDIA_EDIT_STATE.cropY),
+    cropWidth: Number(state.crop_width ?? state.edit_metadata?.cropWidth ?? DEFAULT_MEDIA_EDIT_STATE.cropWidth),
+    cropHeight: Number(state.crop_height ?? state.edit_metadata?.cropHeight ?? DEFAULT_MEDIA_EDIT_STATE.cropHeight),
+    cropAspectRatio: state.crop_aspect_ratio ?? state.edit_metadata?.cropAspectRatio ?? null,
+    outputAspectRatio: state.output_aspect_ratio ?? state.edit_metadata?.outputAspectRatio ?? null,
+    speed: Number(state.speed ?? state.edit_metadata?.speed ?? 1),
+  }));
+  const [mediaSize, setMediaSize] = useState({ width: 1, height: 1 });
   const [previewUrl, setPreviewUrl] = useState(initialImage);
   const [previewNonce, setPreviewNonce] = useState(() => Date.now());
   const [mediaType, setMediaType] = useState(initialMediaType);
@@ -104,6 +127,10 @@ const CreateGif: React.FC = () => {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const stopTimerRef = useRef<number | null>(null);
+
+  const selectedDuration = Math.max(0, editState.trimEnd - editState.trimStart);
+  const previewAspectRatio = ratioToNumber(editState.outputAspectRatio);
+  const isVideo = mediaType?.startsWith('video/') || uploadedFile?.type?.startsWith('video/');
 
   const attachCameraStream = useCallback(() => {
     const video = cameraVideoRef.current;
@@ -155,6 +182,64 @@ const CreateGif: React.FC = () => {
     }, 1000);
     return () => window.clearInterval(interval);
   }, [creationState]);
+
+  useEffect(() => {
+    if (!previewUrl || !isVideo) return;
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.muted = true;
+    video.playsInline = true;
+    video.src = previewUrl;
+    const applyMetadata = () => {
+      const duration = Number.isFinite(video.duration) && video.duration > 0
+        ? Math.min(video.duration, MAX_RECORD_SECONDS)
+        : MAX_RECORD_SECONDS;
+      setMediaSize({
+        width: video.videoWidth || 1,
+        height: video.videoHeight || 1,
+      });
+      setEditState((current) => {
+        const baseEnd = current.trimEnd > 0 ? current.trimEnd : Math.min(duration, MAX_RECORD_SECONDS);
+        const nextTrim = clampTrim(current.trimStart, baseEnd, duration);
+        return {
+          ...current,
+          duration,
+          trimStart: nextTrim.trimStart,
+          trimEnd: nextTrim.trimEnd,
+        };
+      });
+    };
+    video.addEventListener('loadedmetadata', applyMetadata);
+    video.addEventListener('loadeddata', applyMetadata);
+    return () => {
+      video.removeEventListener('loadedmetadata', applyMetadata);
+      video.removeEventListener('loadeddata', applyMetadata);
+      video.removeAttribute('src');
+      video.load();
+    };
+  }, [previewUrl, isVideo]);
+
+  const updateTrimStart = (value: number) => {
+    setTool('trim');
+    setEditState((current) => {
+      const next = clampTrim(value, current.trimEnd, current.duration || MAX_RECORD_SECONDS);
+      return { ...current, trimStart: next.trimStart, trimEnd: next.trimEnd };
+    });
+  };
+
+  const updateTrimEnd = (value: number) => {
+    setTool('trim');
+    setEditState((current) => {
+      const next = clampTrim(current.trimStart, value, current.duration || MAX_RECORD_SECONDS);
+      return { ...current, trimStart: next.trimStart, trimEnd: next.trimEnd };
+    });
+  };
+
+  const applyCropRatio = (ratio: string | null) => {
+    setTool('crop');
+    const crop = centeredCropForRatio(ratio, mediaSize.width, mediaSize.height);
+    setEditState((current) => ({ ...current, ...crop }));
+  };
 
   const startCamera = async (nextFacing: 'user' | 'environment' = facing) => {
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
@@ -225,7 +310,12 @@ const CreateGif: React.FC = () => {
         setUploadedFile(file);
         setMediaType(type);
         setUploadedFromVault(true);
-        setTrim({ start: 0, end: MAX_RECORD_SECONDS });
+        setEditState((current) => ({
+          ...current,
+          trimStart: 0,
+          trimEnd: MAX_RECORD_SECONDS,
+          duration: MAX_RECORD_SECONDS,
+        }));
         if (!title.trim()) setTitle('My FWD');
         setPreviewUrl(url);
         setPreviewNonce(Date.now());
@@ -253,6 +343,8 @@ const CreateGif: React.FC = () => {
     setMood('Cool');
     setCategory('Reactions');
     setRecordSeconds(0);
+    setEditState(DEFAULT_MEDIA_EDIT_STATE);
+    setMediaSize({ width: 1, height: 1 });
     setAiApplied(false);
     setAiHint('');
     setCreationState('idle');
@@ -302,6 +394,12 @@ const CreateGif: React.FC = () => {
     setUploadedFile(file);
     setUploadedFromVault(true);
     setCreationState('file_selected');
+    setEditState((current) => ({
+      ...current,
+      trimStart: 0,
+      trimEnd: file.type.startsWith('video/') ? MAX_RECORD_SECONDS : 0,
+      duration: 0,
+    }));
     setAiApplied(false);
     setAiHint('');
     if (!title.trim()) {
@@ -335,8 +433,6 @@ const CreateGif: React.FC = () => {
     }
   })();
 
-  const isVideo = mediaType?.startsWith('video/') || uploadedFile?.type?.startsWith('video/');
-
   const create = async () => {
     if (!previewUrl) {
       toast({ title: 'Record a FWD first', description: 'Record up to 10 seconds or upload a clip.' });
@@ -356,6 +452,7 @@ const CreateGif: React.FC = () => {
     let sourceVideoUrl: string | undefined;
     let isAnimated = true;
     const stamp = Date.now();
+    const finalEditMetadata = buildEditMetadata(editState);
 
     try {
       // If we came from the camera page via router state, uploadedFile is null
@@ -384,8 +481,12 @@ const CreateGif: React.FC = () => {
             width: 360,
             height: 360,
             fps: 10,
-            startSec: trim.start,
-            endSec: Math.min(trim.end, trim.start + MAX_RECORD_SECONDS),
+            startSec: finalEditMetadata.trimStart,
+            endSec: Math.min(finalEditMetadata.trimEnd || MAX_RECORD_SECONDS, (finalEditMetadata.trimStart || 0) + MAX_RECORD_SECONDS),
+            cropX: finalEditMetadata.cropX,
+            cropY: finalEditMetadata.cropY,
+            cropWidth: finalEditMetadata.cropWidth,
+            cropHeight: finalEditMetadata.cropHeight,
             onProgress: (pct) => setProgress(5 + Math.round(pct * 0.7)),
           });
           await assertGifBlob(gifBlob, { requireAnimation: true });
@@ -463,6 +564,17 @@ const CreateGif: React.FC = () => {
         source_video_url: sourceVideoUrl,
         media_type: 'image/gif',
         is_animated: isAnimated,
+        trim_start: finalEditMetadata.trimStart,
+        trim_end: finalEditMetadata.trimEnd,
+        original_duration: finalEditMetadata.originalDuration,
+        edited_duration: finalEditMetadata.editedDuration,
+        crop_x: finalEditMetadata.cropX,
+        crop_y: finalEditMetadata.cropY,
+        crop_width: finalEditMetadata.cropWidth,
+        crop_height: finalEditMetadata.cropHeight,
+        crop_aspect_ratio: finalEditMetadata.cropAspectRatio,
+        output_aspect_ratio: finalEditMetadata.outputAspectRatio,
+        edit_metadata: finalEditMetadata,
       });
 
       setProgress(100);
@@ -516,6 +628,15 @@ const CreateGif: React.FC = () => {
                 isAnimated={savedGif.is_animated}
                 mp4Url={savedGif.mp4_url}
                 webmUrl={savedGif.webm_url}
+                editMetadata={savedGif.edit_metadata}
+                trimStart={savedGif.trim_start}
+                trimEnd={savedGif.trim_end}
+                cropX={savedGif.crop_x}
+                cropY={savedGif.crop_y}
+                cropWidth={savedGif.crop_width}
+                cropHeight={savedGif.crop_height}
+                cropAspectRatio={savedGif.crop_aspect_ratio}
+                outputAspectRatio={savedGif.output_aspect_ratio}
                 title={savedGif.title}
                 className="w-full h-full object-contain bg-black/60"
                 lazy={false}
@@ -700,13 +821,17 @@ const CreateGif: React.FC = () => {
 
         {/* Preview */}
         {previewUrl && (
-        <div className="relative rounded-2xl overflow-hidden border border-fuchsia-500/40 neon-glow-purple aspect-square sm:aspect-video lg:aspect-square max-w-lg mx-auto mb-3">
+        <div
+          className={`relative rounded-2xl overflow-hidden border border-fuchsia-500/40 neon-glow-purple max-w-lg mx-auto mb-3 bg-black/80 ${previewAspectRatio ? '' : 'aspect-square sm:aspect-video lg:aspect-square'}`}
+          style={{ aspectRatio: previewAspectRatio ? String(previewAspectRatio) : undefined }}
+        >
           <FwdAnimatedGif
             gifUrl={previewUrl}
             mediaType={mediaType}
             cacheKey={previewNonce}
             title={title}
             className={`w-full h-full object-contain bg-black/80 ${filterStyle}`}
+            editMetadata={buildEditMetadata(editState)}
             lazy={false}
           />
           <span className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/60 text-[10px] font-bold text-white border border-white/10">
@@ -726,7 +851,7 @@ const CreateGif: React.FC = () => {
           </button>
           {isVideo && (
             <span className="absolute bottom-2 right-2 px-2.5 py-1 rounded-md bg-black/60 text-[11px] font-mono text-white border border-white/15">
-              00:0{Math.max(trim.end - trim.start, 1)}s
+              {formatDuration(selectedDuration)}
             </span>
           )}
         </div>
@@ -734,8 +859,11 @@ const CreateGif: React.FC = () => {
 
         {/* Timeline (video only) */}
         {previewUrl && isVideo && (
-          <div className="glass-strong rounded-2xl p-3 border border-fuchsia-500/20 mb-4">
-            <p className="text-xs uppercase tracking-wider text-zinc-400 mb-1">Trim (max 10s)</p>
+          <div className={`glass-strong rounded-2xl p-3 border mb-4 ${tool === 'trim' ? 'border-fuchsia-500/40' : 'border-fuchsia-500/20'}`}>
+            <div className="flex items-center justify-between gap-3 mb-1">
+              <p className="text-xs uppercase tracking-wider text-zinc-400">Trim (max 10s)</p>
+              <span className="text-[11px] font-mono text-cyan-300">{formatDuration(selectedDuration)}</span>
+            </div>
             <div className="relative h-14 rounded-xl overflow-hidden bg-black/40 mb-2">
               <div className="absolute inset-0 flex">
                 {Array.from({ length: 8 }).map((_, i) => (
@@ -743,25 +871,34 @@ const CreateGif: React.FC = () => {
                 ))}
               </div>
               <div className="absolute top-0 bottom-0 border-2 border-fuchsia-500 rounded-lg"
-                style={{ left: `${trim.start * 16.6}%`, right: `${100 - trim.end * 16.6}%`, boxShadow: '0 0 20px rgba(176,38,255,0.8)' }}>
+                style={{
+                  left: `${(editState.trimStart / Math.max(editState.duration || MAX_RECORD_SECONDS, 0.5)) * 100}%`,
+                  right: `${100 - (editState.trimEnd / Math.max(editState.duration || MAX_RECORD_SECONDS, 0.5)) * 100}%`,
+                  boxShadow: '0 0 20px rgba(176,38,255,0.8)',
+                }}>
                 <div className="absolute -left-1 top-0 bottom-0 w-2 bg-fuchsia-500 rounded-l" />
                 <div className="absolute -right-1 top-0 bottom-0 w-2 bg-cyan-400 rounded-r" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-[10px] text-zinc-500 mb-0.5 block">Start: {trim.start}s</label>
-                <input type="range" min={0} max={9.5} step={0.5} value={trim.start}
-                  onChange={(e) => setTrim(t => ({ ...t, start: Math.min(+e.target.value, t.end - 0.5) }))}
-                  className="w-full accent-fuchsia-500" />
+                <label className="text-[10px] text-zinc-500 mb-0.5 block">Start: {formatDuration(editState.trimStart)}</label>
+                <input type="range" min={0} max={Math.max(0.5, Math.min(editState.duration || MAX_RECORD_SECONDS, MAX_RECORD_SECONDS) - 0.5)} step={0.1} value={editState.trimStart}
+                  onChange={(e) => updateTrimStart(Number(e.target.value))}
+                  onPointerDown={() => setTool('trim')}
+                  className="w-full accent-fuchsia-500 min-h-11" />
               </div>
               <div>
-                <label className="text-[10px] text-zinc-500 mb-0.5 block">End: {trim.end}s</label>
-                <input type="range" min={0.5} max={10} step={0.5} value={trim.end}
-                  onChange={(e) => setTrim(t => ({ ...t, end: Math.max(+e.target.value, t.start + 0.5) }))}
-                  className="w-full accent-cyan-400" />
+                <label className="text-[10px] text-zinc-500 mb-0.5 block">End: {formatDuration(editState.trimEnd)}</label>
+                <input type="range" min={0.5} max={Math.min(editState.duration || MAX_RECORD_SECONDS, MAX_RECORD_SECONDS)} step={0.1} value={editState.trimEnd}
+                  onChange={(e) => updateTrimEnd(Number(e.target.value))}
+                  onPointerDown={() => setTool('trim')}
+                  className="w-full accent-cyan-400 min-h-11" />
               </div>
             </div>
+            {selectedDuration > MAX_RECORD_SECONDS && (
+              <p className="mt-2 text-[11px] text-pink-300">Selected range is capped to 10 seconds.</p>
+            )}
           </div>
         )}
 
@@ -771,7 +908,7 @@ const CreateGif: React.FC = () => {
             const Icon = t.icon;
             const active = t.id === tool;
             return (
-              <button key={t.id} onClick={() => setTool(t.id)}
+              <button key={t.id} type="button" onClick={() => setTool(t.id)}
                 className={`flex flex-col items-center gap-1 py-3 rounded-2xl border transition ${
                   active ? 'bg-fuchsia-500/15 border-fuchsia-500 neon-glow-purple text-fuchsia-300' : 'glass border-white/10 text-zinc-300 hover:border-fuchsia-500/40'
                 }`}>
@@ -794,7 +931,7 @@ const CreateGif: React.FC = () => {
             <p className="text-xs uppercase tracking-wider text-zinc-400 mb-2">Stickers</p>
             <div className="flex flex-wrap gap-2">
               {STICKERS.map(s => (
-                <button key={s} onClick={() => setStickerOverlay(s === stickerOverlay ? null : s)}
+                <button key={s} type="button" onClick={() => setStickerOverlay(s === stickerOverlay ? null : s)}
                   className={`w-12 h-12 rounded-xl text-2xl border ${stickerOverlay === s ? 'border-fuchsia-500 bg-fuchsia-500/10' : 'border-white/10 glass'}`}>
                   {s}
                 </button>
@@ -807,7 +944,10 @@ const CreateGif: React.FC = () => {
             <p className="text-xs uppercase tracking-wider text-zinc-400 mb-2">Playback Speed</p>
             <div className="flex flex-wrap gap-2">
               {SPEEDS.map(s => (
-                <button key={s} onClick={() => setSpeed(s)}
+                <button key={s} type="button" onClick={() => {
+                  setSpeed(s);
+                  setEditState((current) => ({ ...current, speed: s }));
+                }}
                   className={`px-4 py-2 rounded-full text-sm font-semibold border ${speed === s ? 'bg-fuchsia-500/20 border-fuchsia-500 text-fuchsia-300' : 'glass border-white/10 text-zinc-300'}`}>
                   {s}x
                 </button>
@@ -832,10 +972,26 @@ const CreateGif: React.FC = () => {
           <div className="glass-strong rounded-2xl p-3 border border-fuchsia-500/20 mb-4">
             <p className="text-xs uppercase tracking-wider text-zinc-400 mb-2">Aspect Ratio</p>
             <div className="flex flex-wrap gap-2">
-              {['1:1', '4:5', '9:16', '16:9'].map(r => (
-                <button key={r} className="px-4 py-2 rounded-full text-sm font-semibold border glass border-white/10 text-zinc-300 hover:border-fuchsia-500/40">{r}</button>
+              {['Original', '1:1', '4:5', '9:16', '16:9'].map(r => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => applyCropRatio(r === 'Original' ? null : r)}
+                  className={`px-4 py-2 min-h-11 rounded-full text-sm font-semibold border ${
+                    (r === 'Original' ? !editState.outputAspectRatio : editState.outputAspectRatio === r)
+                      ? 'bg-fuchsia-500/20 border-fuchsia-500 text-fuchsia-300'
+                      : 'glass border-white/10 text-zinc-300 hover:border-fuchsia-500/40'
+                  }`}
+                >
+                  {r}
+                </button>
               ))}
             </div>
+            <p className="mt-2 text-[11px] text-zinc-500">
+              {editState.outputAspectRatio
+                ? `Output is framed ${editState.outputAspectRatio} without stretching.`
+                : 'Original frame preserved.'}
+            </p>
           </div>
         )}
 

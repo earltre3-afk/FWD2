@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUserMemory } from '@/hooks/useUserMemory';
 import { resolveFwdMedia } from '@/lib/fwdMedia';
+import { editMetadataFromDb, MediaEditMetadata } from '@/lib/mediaEdits';
 
 export interface Gif {
   id: string;
@@ -27,6 +28,17 @@ export interface Gif {
   visibility?: string;
   provider?: string;
   provider_gif_id?: string;
+  trim_start?: number | null;
+  trim_end?: number | null;
+  original_duration?: number | null;
+  edited_duration?: number | null;
+  crop_x?: number | null;
+  crop_y?: number | null;
+  crop_width?: number | null;
+  crop_height?: number | null;
+  crop_aspect_ratio?: string | null;
+  output_aspect_ratio?: string | null;
+  edit_metadata?: MediaEditMetadata | null;
 }
 
 export interface Collection {
@@ -76,7 +88,8 @@ interface AppContextType {
   feedHasMore: boolean;
   loadMoreFeed: () => Promise<void>;
   createPost: (gifId: string, caption: string) => Promise<FwdPost | null>;
-  deletePost: (postId: string) => Promise<void>;
+  updatePost: (postId: string, gifId: string, caption: string) => Promise<boolean>;
+  deletePost: (postId: string) => Promise<boolean>;
   toggleLike: (postId: string) => Promise<void>;
   savePost: (postId: string) => Promise<void>;
 }
@@ -100,6 +113,17 @@ export interface CreateGifPayload {
   source_video_url?: string;
   media_type?: string;
   is_animated?: boolean;
+  trim_start?: number | null;
+  trim_end?: number | null;
+  original_duration?: number | null;
+  edited_duration?: number | null;
+  crop_x?: number | null;
+  crop_y?: number | null;
+  crop_width?: number | null;
+  crop_height?: number | null;
+  crop_aspect_ratio?: string | null;
+  output_aspect_ratio?: string | null;
+  edit_metadata?: MediaEditMetadata | null;
 }
 
 const defaultGuestCollections: Collection[] = [
@@ -158,6 +182,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       is_animated: g.is_animated ?? media.isLikelyAnimated,
       provider: g.provider,
       provider_gif_id: g.provider_gif_id,
+      trim_start: g.trim_start ?? null,
+      trim_end: g.trim_end ?? null,
+      original_duration: g.original_duration ?? null,
+      edited_duration: g.edited_duration ?? null,
+      crop_x: g.crop_x ?? null,
+      crop_y: g.crop_y ?? null,
+      crop_width: g.crop_width ?? null,
+      crop_height: g.crop_height ?? null,
+      crop_aspect_ratio: g.crop_aspect_ratio ?? null,
+      output_aspect_ratio: g.output_aspect_ratio ?? null,
+      edit_metadata: editMetadataFromDb(g),
     };
   };
 
@@ -180,6 +215,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       visibility: g.is_private === false ? 'public' : 'private',
       provider: g.provider,
       provider_gif_id: g.provider_gif_id,
+      edit_metadata: editMetadataFromDb(g),
     };
   };
 
@@ -350,6 +386,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       height: payload.height ?? null,
       file_size_bytes: payload.file_size_bytes ?? null,
       duration_ms: payload.duration_ms ?? null,
+      trim_start: payload.trim_start ?? null,
+      trim_end: payload.trim_end ?? null,
+      original_duration: payload.original_duration ?? null,
+      edited_duration: payload.edited_duration ?? null,
+      crop_x: payload.crop_x ?? null,
+      crop_y: payload.crop_y ?? null,
+      crop_width: payload.crop_width ?? null,
+      crop_height: payload.crop_height ?? null,
+      crop_aspect_ratio: payload.crop_aspect_ratio ?? null,
+      output_aspect_ratio: payload.output_aspect_ratio ?? null,
+      edit_metadata: payload.edit_metadata ?? null,
     };
 
     const { data, error } = await supabase.from('fwd_gifs').insert(insertPayload).select().single();
@@ -434,7 +481,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       .from('fwd_feed_posts')
       .select(`
         *,
-        gif:gif_id ( id, gif_url, media_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, title, allow_reuse, allow_download, owner_user_id ),
+        gif:gif_id ( id, gif_url, media_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, title, allow_reuse, allow_download, owner_user_id, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata ),
         profile:fwd_feed_posts_user_profiles_fk ( display_name, username, avatar_url )
       `)
       .eq('visibility', 'public')
@@ -505,7 +552,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       visibility: 'public',
     }).select(`
       *,
-      gif:gif_id ( id, gif_url, media_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, title, allow_reuse, allow_download, owner_user_id ),
+      gif:gif_id ( id, gif_url, media_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, title, allow_reuse, allow_download, owner_user_id, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata ),
       profile:fwd_feed_posts_user_profiles_fk ( display_name, username, avatar_url )
     `).single();
 
@@ -532,10 +579,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return post;
   }, [ensureProfile, user]);
 
+  const updatePost = useCallback(async (postId: string, gifId: string, caption: string) => {
+    if (!user) return false;
+
+    const { data, error } = await supabase.from('fwd_feed_posts').update({
+      gif_id: gifId,
+      caption: caption.trim() || null,
+    }).eq('id', postId).select(`
+      *,
+      gif:gif_id ( id, gif_url, media_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, title, allow_reuse, allow_download, owner_user_id, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata ),
+      profile:fwd_feed_posts_user_profiles_fk ( display_name, username, avatar_url )
+    `).maybeSingle();
+
+    if (error || !data) return false;
+
+    setFeedPosts(prev => prev.map(p => p.id === postId ? {
+      ...p,
+      gif_id: data.gif_id,
+      gif: data.gif ? dbGifToGif(data.gif) : null,
+      caption: data.caption,
+      visibility: data.visibility,
+      profile: Array.isArray(data.profile) ? data.profile[0] : data.profile,
+    } : p));
+    return true;
+  }, [user]);
+
   const deletePost = useCallback(async (postId: string) => {
-    await supabase.from('fwd_feed_posts').delete().eq('id', postId);
+    if (!user) return false;
+    const { error } = await supabase.from('fwd_feed_posts').delete().eq('id', postId);
+    if (error) return false;
     setFeedPosts(prev => prev.filter(p => p.id !== postId));
-  }, []);
+    return true;
+  }, [user]);
 
   const toggleLike = useCallback(async (postId: string) => {
     if (!user) return;
@@ -596,7 +671,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       userGifs, createUserGif, deleteUserGif, refresh: loadAll,
       recordGifUse,
       feedPosts, feedLoading, feedHasMore,
-      loadMoreFeed, createPost, deletePost,
+      loadMoreFeed, createPost, updatePost, deletePost,
       toggleLike, savePost,
     }}>
       {children}

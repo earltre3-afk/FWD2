@@ -5,6 +5,7 @@ import { Gif, useAppContext } from '@/contexts/AppContext';
 import FwdMediaPlayer from '@/components/FwdMediaPlayer';
 import { toast } from '@/components/ui/use-toast';
 import { stopActionEvent } from '@/lib/actionEvents';
+import { shareFwdItem, getFwdShareUrl } from '@/lib/fwdShare';
 
 interface Props {
   gif: Gif;
@@ -36,20 +37,18 @@ const GifCard: React.FC<Props> = ({
   };
 
   const shareGif = async () => {
-    const url = `${window.location.origin}/gif/${gif.id}`;
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: gif.title || 'You got a FWD', text: gif.caption || 'Open this FWD.', url });
-      } else {
-        await navigator.clipboard.writeText(url);
-        toast({ title: 'FWD link copied.' });
-      }
-    } catch (error) {
-      const message = `${(error as { name?: string; message?: string }).name || ''} ${(error as { message?: string }).message || ''}`.toLowerCase();
-      if (!message.includes('abort') && !message.includes('cancel')) {
-        toast({ title: 'Share failed', description: 'Couldn’t share or copy this FWD.', variant: 'destructive' });
-      }
-    }
+    const isUuid = /^[0-9a-f-]{36}$/i.test(gif.id);
+    const absoluteUrl = isUuid
+      ? getFwdShareUrl(gif.id)
+      : `${window.location.origin}/gif/${gif.id}`;
+    const result = await shareFwdItem({
+      id: gif.id,
+      title: gif.title,
+      caption: gif.caption,
+      absoluteUrl,
+    });
+    if (result === 'copied') toast({ title: 'FWD link copied.' });
+    if (result === 'failed') toast({ title: 'Share failed', description: 'Couldn\'t share or copy this FWD.', variant: 'destructive' });
   };
 
   if (dead) return (
@@ -71,6 +70,15 @@ const GifCard: React.FC<Props> = ({
         sourceVideoUrl={gif.source_video_url}
         mediaType={gif.media_type}
         isAnimated={gif.is_animated}
+        editMetadata={gif.edit_metadata}
+        trimStart={gif.trim_start}
+        trimEnd={gif.trim_end}
+        cropX={gif.crop_x}
+        cropY={gif.crop_y}
+        cropWidth={gif.crop_width}
+        cropHeight={gif.crop_height}
+        cropAspectRatio={gif.crop_aspect_ratio}
+        outputAspectRatio={gif.output_aspect_ratio}
         title={gif.title}
         className="w-full h-full object-cover"
         onError={() => setDead(true)}

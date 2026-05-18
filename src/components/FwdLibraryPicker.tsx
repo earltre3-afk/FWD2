@@ -6,6 +6,7 @@ import { Gif, useAppContext } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/components/ui/use-toast';
+import { editMetadataFromDb } from '@/lib/mediaEdits';
 
 interface Pack {
   id: string;
@@ -45,6 +46,17 @@ const dbRowToGif = (g: any): Gif => ({
   media_type: g.media_type || undefined,
   is_animated: g.is_animated ?? true,
   visibility: g.visibility,
+  trim_start: g.trim_start ?? null,
+  trim_end: g.trim_end ?? null,
+  original_duration: g.original_duration ?? null,
+  edited_duration: g.edited_duration ?? null,
+  crop_x: g.crop_x ?? null,
+  crop_y: g.crop_y ?? null,
+  crop_width: g.crop_width ?? null,
+  crop_height: g.crop_height ?? null,
+  crop_aspect_ratio: g.crop_aspect_ratio ?? null,
+  output_aspect_ratio: g.output_aspect_ratio ?? null,
+  edit_metadata: editMetadataFromDb(g),
 });
 
 const filterGifs = (gifs: Gif[], query: string): Gif[] => {
@@ -74,6 +86,15 @@ const GifGrid: React.FC<{ gifs: Gif[]; onSelect: (g: Gif) => void }> = ({ gifs, 
           sourceVideoUrl={g.source_video_url}
           mediaType={g.media_type}
           isAnimated={g.is_animated}
+          editMetadata={g.edit_metadata}
+          trimStart={g.trim_start}
+          trimEnd={g.trim_end}
+          cropX={g.crop_x}
+          cropY={g.crop_y}
+          cropWidth={g.crop_width}
+          cropHeight={g.crop_height}
+          cropAspectRatio={g.crop_aspect_ratio}
+          outputAspectRatio={g.output_aspect_ratio}
           title={g.title}
           className="w-full h-full object-cover"
         />
@@ -335,6 +356,15 @@ const PacksPanel: React.FC<PacksPanelProps> = ({
                       webmUrl={g.webm_url}
                       mediaType={g.media_type}
                       isAnimated={g.is_animated}
+                      editMetadata={g.edit_metadata}
+                      trimStart={g.trim_start}
+                      trimEnd={g.trim_end}
+                      cropX={g.crop_x}
+                      cropY={g.crop_y}
+                      cropWidth={g.crop_width}
+                      cropHeight={g.crop_height}
+                      cropAspectRatio={g.crop_aspect_ratio}
+                      outputAspectRatio={g.output_aspect_ratio}
                       className="w-full h-full object-cover"
                     />
                   </div>

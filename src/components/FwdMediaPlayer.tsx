@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Play } from 'lucide-react';
 import { resolveFwdMedia } from '@/lib/fwdMedia';
+import { cropStyle, getCropAspectRatio, hasCrop, MediaEditMetadata, ratioToNumber } from '@/lib/mediaEdits';
 
 type PlayState = 'loading' | 'playing' | 'blocked' | 'error' | 'unsupported';
 
@@ -31,6 +32,15 @@ export type FwdMediaPlayerProps = {
   lazy?: boolean;
   onError?: () => void;
   onLoad?: () => void;
+  editMetadata?: MediaEditMetadata | null;
+  trimStart?: number | null;
+  trimEnd?: number | null;
+  cropX?: number | null;
+  cropY?: number | null;
+  cropWidth?: number | null;
+  cropHeight?: number | null;
+  cropAspectRatio?: string | null;
+  outputAspectRatio?: string | null;
 };
 
 const MP4_EXT_RE = /\.(mp4|m4v|mov)(?:[?#].*)?$/i;
@@ -83,10 +93,30 @@ export function FwdMediaPlayer({
   lazy = true,
   onError,
   onLoad,
+  editMetadata,
+  trimStart,
+  trimEnd,
+  cropX,
+  cropY,
+  cropWidth,
+  cropHeight,
+  cropAspectRatio,
+  outputAspectRatio,
 }: FwdMediaPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playState, setPlayState] = useState<PlayState>('loading');
   const [imgErrored, setImgErrored] = useState(false);
+  const effectiveEdit: MediaEditMetadata = {
+    ...(editMetadata || {}),
+    trimStart: trimStart ?? editMetadata?.trimStart,
+    trimEnd: trimEnd ?? editMetadata?.trimEnd,
+    cropX: cropX ?? editMetadata?.cropX,
+    cropY: cropY ?? editMetadata?.cropY,
+    cropWidth: cropWidth ?? editMetadata?.cropWidth,
+    cropHeight: cropHeight ?? editMetadata?.cropHeight,
+    cropAspectRatio: cropAspectRatio ?? editMetadata?.cropAspectRatio,
+    outputAspectRatio: outputAspectRatio ?? editMetadata?.outputAspectRatio,
+  };
 
   const safari = isSafari();
   const resolved = resolveFwdMedia({
@@ -193,6 +223,35 @@ export function FwdMediaPlayer({
     return () => observer.disconnect();
   }, [isVideoMode, autoPlay, tryPlay]);
 
+  useEffect(() => {
+    const video = videoRef.current;
+    const start = Number(effectiveEdit.trimStart ?? 0);
+    const end = Number(effectiveEdit.trimEnd ?? 0);
+    if (!video || !isVideoMode || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) return;
+
+    const seekToStart = () => {
+      try {
+        if (video.currentTime < start || video.currentTime >= end) video.currentTime = start;
+      } catch {}
+    };
+    const enforceRange = () => {
+      if (video.currentTime >= end || video.currentTime < start) {
+        video.currentTime = start;
+        if (!video.paused && !video.ended) void video.play().catch(() => {});
+      }
+    };
+
+    video.addEventListener('loadedmetadata', seekToStart);
+    video.addEventListener('timeupdate', enforceRange);
+    video.addEventListener('play', seekToStart);
+    if (video.readyState >= HTMLMediaElement.HAVE_METADATA) seekToStart();
+    return () => {
+      video.removeEventListener('loadedmetadata', seekToStart);
+      video.removeEventListener('timeupdate', enforceRange);
+      video.removeEventListener('play', seekToStart);
+    };
+  }, [isVideoMode, videoKey, effectiveEdit.trimStart, effectiveEdit.trimEnd]);
+
   // Reset play state when source URLs change
   useEffect(() => {
     setPlayState('loading');
@@ -203,16 +262,35 @@ export function FwdMediaPlayer({
 
   const hasOverlay = playState === 'blocked' || playState === 'error' || playState === 'unsupported';
   const objFit = objectFit !== 'cover' ? objectFit : undefined;
+  const cropActive = hasCrop(effectiveEdit);
+  const cropRatio = getCropAspectRatio(effectiveEdit);
+  const cropRatioValue = ratioToNumber(cropRatio);
+  const wrapWithCrop = (node: React.ReactNode) => {
+    if (!cropActive) return node;
+    return (
+      <div
+        className={`relative overflow-hidden ${className ?? ''}`}
+        style={{
+          ...style,
+          aspectRatio: cropRatioValue ? String(cropRatioValue) : undefined,
+        }}
+      >
+        <div className="absolute" style={cropStyle(effectiveEdit)}>
+          {node}
+        </div>
+      </div>
+    );
+  };
 
   // ── Video mode ──────────────────────────────────────────────────────────────
   if (isVideoMode) {
     // display:contents makes the wrapper invisible to layout when no overlay is needed,
     // so the <video> element receives className/style directly (backward-compatible sizing).
     // When an overlay is active the wrapper becomes position:relative to anchor it.
-    return (
+    const videoNode = (
       <div
-        className={hasOverlay ? `relative ${className ?? ''}` : ''}
-        style={hasOverlay ? style : ({ display: 'contents' } as React.CSSProperties)}
+        className={hasOverlay ? `relative ${cropActive ? 'h-full w-full' : className ?? ''}` : ''}
+        style={hasOverlay ? (cropActive ? { height: '100%', width: '100%' } : style) : ({ display: 'contents' } as React.CSSProperties)}
       >
         <video
           ref={videoRef}
@@ -228,8 +306,8 @@ export function FwdMediaPlayer({
           disablePictureInPicture
           controlsList="nodownload nofullscreen noremoteplayback"
           draggable={false}
-          className={hasOverlay ? 'w-full block' : className}
-          style={hasOverlay ? { objectFit: objFit } : { objectFit: objFit, ...style }}
+          className={hasOverlay ? 'w-full h-full block' : (cropActive ? 'w-full h-full object-cover' : className)}
+          style={hasOverlay ? { objectFit: objFit, height: '100%' } : cropActive ? { objectFit: 'cover' } : { objectFit: objFit, ...style }}
           onError={() => {
             setPlayState('error');
             onError?.();
@@ -269,6 +347,7 @@ export function FwdMediaPlayer({
         )}
       </div>
     );
+    return wrapWithCrop(videoNode);
   }
 
   // ── GIF / image mode ────────────────────────────────────────────────────────
@@ -279,15 +358,15 @@ export function FwdMediaPlayer({
     // Safari backdrop-filter compositing bug fix
     const safariStyle: React.CSSProperties = safari ? { WebkitBackfaceVisibility: 'hidden' } : {};
 
-    return (
+    const imageNode = (
       <img
         src={imgSrc}
         alt={title}
         draggable={false}
         loading={lazy && !safari ? 'lazy' : 'eager'}
         decoding={safari ? 'auto' : 'async'}
-        className={className}
-        style={objFit ? { objectFit: objFit, ...safariStyle, ...style } : { ...safariStyle, ...style }}
+        className={cropActive ? 'w-full h-full object-cover' : className}
+        style={cropActive ? { objectFit: 'cover', ...safariStyle } : objFit ? { objectFit: objFit, ...safariStyle, ...style } : { ...safariStyle, ...style }}
         onLoad={(e) => {
           const img = e.currentTarget;
           // 1×1 pixel placeholder detection — treat as broken
@@ -300,6 +379,7 @@ export function FwdMediaPlayer({
         }}
       />
     );
+    return wrapWithCrop(imageNode);
   }
 
   return null;

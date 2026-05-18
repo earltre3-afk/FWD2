@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase';
 import { Gif } from '@/contexts/AppContext';
 import GifCard from '@/components/GifCard';
 import { resolveFwdMedia } from '@/lib/fwdMedia';
+import { editMetadataFromDb } from '@/lib/mediaEdits';
 
 interface ProfileRow {
   id: string;
@@ -73,6 +74,17 @@ const PublicProfile: React.FC = () => {
           source_video_url: media.sourceVideoUrl || undefined,
           media_type: row.media_type || undefined,
           is_animated: row.is_animated ?? media.isLikelyAnimated,
+          trim_start: row.trim_start ?? null,
+          trim_end: row.trim_end ?? null,
+          original_duration: row.original_duration ?? null,
+          edited_duration: row.edited_duration ?? null,
+          crop_x: row.crop_x ?? null,
+          crop_y: row.crop_y ?? null,
+          crop_width: row.crop_width ?? null,
+          crop_height: row.crop_height ?? null,
+          crop_aspect_ratio: row.crop_aspect_ratio ?? null,
+          output_aspect_ratio: row.output_aspect_ratio ?? null,
+          edit_metadata: editMetadataFromDb(row),
           tags: row.tags || [],
           category: row.category || 'Reactions',
           mood: row.mood,

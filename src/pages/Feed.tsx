@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Heart, Bookmark, Share2, MoreHorizontal, Zap,
   MessageCircle, RefreshCw, Download, Loader2, Plus,
-  Flag,
+  Flag, Edit3, Trash2,
 } from 'lucide-react';
 import FwdLogo from '@/components/FwdLogo';
 import BottomNav from '@/components/BottomNav';
@@ -69,6 +69,15 @@ const PostComposer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                   sourceVideoUrl={selected.source_video_url}
                   mediaType={selected.media_type}
                   isAnimated={selected.is_animated}
+                  editMetadata={selected.edit_metadata}
+                  trimStart={selected.trim_start}
+                  trimEnd={selected.trim_end}
+                  cropX={selected.crop_x}
+                  cropY={selected.crop_y}
+                  cropWidth={selected.crop_width}
+                  cropHeight={selected.crop_height}
+                  cropAspectRatio={selected.crop_aspect_ratio}
+                  outputAspectRatio={selected.output_aspect_ratio}
                   title={selected.title}
                   className="w-full h-full object-contain bg-black/60"
                   objectFit="contain"
@@ -119,12 +128,109 @@ const PostComposer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   );
 };
 
+const PostEditor: React.FC<{ post: FwdPost; onClose: () => void; openPickerOnMount?: boolean }> = ({ post, onClose, openPickerOnMount }) => {
+  const { updatePost } = useAppContext();
+  const [selected, setSelected] = useState<Gif | null>(post.gif ?? null);
+  const [caption, setCaption] = useState(post.caption ?? '');
+  const [saving, setSaving] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(Boolean(openPickerOnMount));
+
+  const save = async () => {
+    if (!selected || saving) return;
+    setSaving(true);
+    const ok = await updatePost(post.id, selected.id, caption);
+    setSaving(false);
+    if (ok) {
+      toast({ title: 'Post updated' });
+      onClose();
+    } else {
+      toast({ title: 'Could not update post', description: 'Try again in a moment.', variant: 'destructive' });
+    }
+  };
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-md p-4">
+        <div className="w-full max-w-md glass-strong rounded-3xl border border-fuchsia-500/40 p-5">
+          <h3 className="text-lg font-black text-white mb-1">Edit post</h3>
+          <p className="text-xs text-zinc-500 mb-4">Update the FWD or caption.</p>
+
+          {selected && (
+            <div className="aspect-square rounded-2xl overflow-hidden border border-fuchsia-500/30 max-h-56 mx-auto mb-3">
+              <FwdMediaPlayer
+                mp4Url={selected.mp4_url}
+                webmUrl={selected.webm_url}
+                gifUrl={selected.image}
+                posterUrl={selected.still_url}
+                sourceVideoUrl={selected.source_video_url}
+                mediaType={selected.media_type}
+                isAnimated={selected.is_animated}
+                editMetadata={selected.edit_metadata}
+                trimStart={selected.trim_start}
+                trimEnd={selected.trim_end}
+                cropX={selected.crop_x}
+                cropY={selected.crop_y}
+                cropWidth={selected.crop_width}
+                cropHeight={selected.crop_height}
+                cropAspectRatio={selected.crop_aspect_ratio}
+                outputAspectRatio={selected.output_aspect_ratio}
+                title={selected.title}
+                className="w-full h-full object-contain bg-black/60"
+                objectFit="contain"
+                lazy={false}
+              />
+            </div>
+          )}
+
+          <button
+            onClick={() => setPickerOpen(true)}
+            className="text-xs text-zinc-500 mb-3 flex items-center gap-1 hover:text-fuchsia-300 transition"
+          >
+            <RefreshCw size={12} /> Change FWD
+          </button>
+
+          <textarea
+            value={caption}
+            onChange={e => setCaption(e.target.value.slice(0, 200))}
+            placeholder="Add a caption..."
+            rows={2}
+            className="w-full bg-black/40 border border-fuchsia-500/30 rounded-xl px-4 py-3 text-white text-sm outline-none resize-none mb-3 focus:border-fuchsia-500"
+          />
+
+          <div className="flex gap-2">
+            <button onClick={onClose} className="flex-1 py-3 rounded-xl glass border border-white/10 text-zinc-300 font-semibold text-sm">
+              Cancel
+            </button>
+            <button
+              onClick={save}
+              disabled={saving || !selected}
+              className="flex-1 py-3 rounded-xl bg-gradient-to-r from-fuchsia-600 to-pink-500 text-white font-bold text-sm neon-glow-pink disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              {saving ? <Loader2 size={15} className="animate-spin" /> : <Edit3 size={15} />}
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <FwdLibraryPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={setSelected}
+        title="Choose FWD"
+      />
+    </>
+  );
+};
+
 // ---- Post card ----
 const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
   const { toggleLike, savePost, deletePost } = useAppContext();
   const { user } = useAuth();
   const nav = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorStartsWithPicker, setEditorStartsWithPicker] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [sharing, setSharing] = useState(false);
@@ -132,7 +238,6 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
   const displayName = post.profile?.display_name || post.profile?.username || 'FWD User';
   const avatar = post.profile?.avatar_url;
   const initial = (displayName).charAt(0).toUpperCase();
-  const isOwner = user?.id === post.user_id;
 
   const handleShare = async () => {
     if (sharing) return;
@@ -158,6 +263,14 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
     await supabase.from('user_gif_library').upsert({ user_id: user.id, gif_id: post.gif_id, saved_from_user_id: post.user_id });
     await supabase.from('fwd_feed_posts').update({ reuse_count: (post.reuse_count || 0) + 1 }).eq('id', post.id);
     toast({ title: 'GIF added to your library', description: 'Now you can post it from your library.' });
+  };
+
+  const handleDelete = async () => {
+    const ok = await deletePost(post.id);
+    toast(ok
+      ? { title: 'Post deleted' }
+      : { title: 'Could not delete post', description: 'Try again in a moment.', variant: 'destructive' }
+    );
   };
 
   const handleDownload = () => {
@@ -205,9 +318,12 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
             <MoreHorizontal size={16} className="text-zinc-400" />
           </button>
           {menuOpen && (
-            <div className="absolute right-0 top-10 z-10 glass-strong rounded-xl border border-fuchsia-500/30 py-1 min-w-[140px]">
-              <button onClick={(event) => { stopActionEvent(event); handleShare(); setMenuOpen(false); }} className="w-full px-4 py-2 text-left text-sm text-zinc-200 hover:bg-white/5 flex items-center gap-2">
-                <Share2 size={14} /> Share
+            <div className="absolute right-0 top-10 z-10 glass-strong rounded-xl border border-fuchsia-500/30 py-1 min-w-[150px]">
+              <button onClick={(event) => { stopActionEvent(event); setEditorStartsWithPicker(false); setEditorOpen(true); setMenuOpen(false); }} className="w-full px-4 py-2 text-left text-sm text-zinc-200 hover:bg-white/5 flex items-center gap-2">
+                <Edit3 size={14} /> Edit
+              </button>
+              <button onClick={(event) => { stopActionEvent(event); setEditorStartsWithPicker(true); setEditorOpen(true); setMenuOpen(false); }} className="w-full px-4 py-2 text-left text-sm text-zinc-200 hover:bg-white/5 flex items-center gap-2">
+                <Plus size={14} /> Add GIF with FWD
               </button>
               {post.gif?.allow_download && (
                 <button onClick={(event) => { stopActionEvent(event); handleDownload(); setMenuOpen(false); }} className="w-full px-4 py-2 text-left text-sm text-zinc-200 hover:bg-white/5 flex items-center gap-2">
@@ -217,11 +333,9 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
               <button onClick={(event) => { stopActionEvent(event); setReportOpen(true); setMenuOpen(false); }} className="w-full px-4 py-2 text-left text-sm text-zinc-200 hover:bg-white/5 flex items-center gap-2">
                 <Flag size={14} /> Report
               </button>
-              {isOwner && (
-                <button onClick={(event) => { stopActionEvent(event); deletePost(post.id); setMenuOpen(false); }} className="w-full px-4 py-2 text-left text-sm text-pink-400 hover:bg-white/5">
-                  Delete post
-                </button>
-              )}
+              <button onClick={(event) => { stopActionEvent(event); handleDelete(); setMenuOpen(false); }} className="w-full px-4 py-2 text-left text-sm text-pink-400 hover:bg-white/5 flex items-center gap-2">
+                <Trash2 size={14} /> Delete
+              </button>
             </div>
           )}
         </div>
@@ -238,6 +352,15 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
             sourceVideoUrl={post.gif.source_video_url}
             mediaType={post.gif.media_type}
             isAnimated={post.gif.is_animated}
+            editMetadata={post.gif.edit_metadata}
+            trimStart={post.gif.trim_start}
+            trimEnd={post.gif.trim_end}
+            cropX={post.gif.crop_x}
+            cropY={post.gif.crop_y}
+            cropWidth={post.gif.crop_width}
+            cropHeight={post.gif.crop_height}
+            cropAspectRatio={post.gif.crop_aspect_ratio}
+            outputAspectRatio={post.gif.output_aspect_ratio}
             title={post.gif.title}
             className="w-full object-contain"
             style={{ maxHeight: '480px', display: 'block' } as React.CSSProperties}
@@ -316,6 +439,13 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
       </div>
       <FwdDownloadSheet open={downloadOpen} onOpenChange={setDownloadOpen} gif={post.gif ?? null} shareId={post.id} />
       <FwdReportSheet open={reportOpen} onOpenChange={setReportOpen} gifId={post.gif_id} postId={post.id} />
+      {editorOpen && (
+        <PostEditor
+          post={post}
+          openPickerOnMount={editorStartsWithPicker}
+          onClose={() => setEditorOpen(false)}
+        />
+      )}
     </article>
   );
 };

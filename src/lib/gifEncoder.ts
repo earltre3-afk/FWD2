@@ -4,6 +4,10 @@ export interface GifEncodeOptions {
   fps?: number;
   startSec?: number;
   endSec?: number;
+  cropX?: number;
+  cropY?: number;
+  cropWidth?: number;
+  cropHeight?: number;
   onProgress?: (pct: number) => void;
 }
 
@@ -86,6 +90,10 @@ export async function videoFileToGif(
     height = 320,
     fps = 10,
     startSec = 0,
+    cropX = 0,
+    cropY = 0,
+    cropWidth = 1,
+    cropHeight = 1,
     onProgress,
   } = opts;
 
@@ -119,6 +127,15 @@ export async function videoFileToGif(
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+  const drawFrame = () => {
+    const sourceWidth = video.videoWidth || width;
+    const sourceHeight = video.videoHeight || height;
+    const sx = Math.max(0, Math.min(0.95, cropX)) * sourceWidth;
+    const sy = Math.max(0, Math.min(0.95, cropY)) * sourceHeight;
+    const sw = Math.max(0.05, Math.min(1, cropWidth)) * sourceWidth;
+    const sh = Math.max(0.05, Math.min(1, cropHeight)) * sourceHeight;
+    ctx.drawImage(video, sx, sy, Math.min(sw, sourceWidth - sx), Math.min(sh, sourceHeight - sy), 0, 0, width, height);
+  };
 
   const encoder = GIFEncoder();
   const captureRealtime = !seekable || isSafari();
@@ -133,7 +150,7 @@ export async function videoFileToGif(
         video.onseeked = () => res();
         setTimeout(res, 500);
       });
-      ctx.drawImage(video, 0, 0, width, height);
+      drawFrame();
       const { data } = ctx.getImageData(0, 0, width, height);
       const palette = quantize(data, 256);
       const index = applyPalette(data, palette);
@@ -184,7 +201,7 @@ export async function videoFileToGif(
 
           const now = performance.now();
           if (now - lastCapture >= frameDurationMs) {
-            ctx.drawImage(video, 0, 0, width, height);
+            drawFrame();
             rawFrames.push(
               new Uint8ClampedArray(ctx.getImageData(0, 0, width, height).data)
             );

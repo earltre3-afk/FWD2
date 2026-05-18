@@ -14,6 +14,7 @@ import { useAppContext, Gif } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/components/ui/use-toast';
 import { supabase } from '@/lib/supabase';
+import { editMetadataFromDb } from '@/lib/mediaEdits';
 
 interface Pack {
   id: string;
@@ -89,7 +90,7 @@ const Profile: React.FC = () => {
     (async () => {
       const { data } = await supabase
         .from('profiles')
-        .select('pinned_gif_id, fwd_gifs:pinned_gif_id(id, title, gif_url, media_url, still_url, thumbnail_url, mp4_url, webm_url, tags, category, mood, source_video_url, media_type, is_animated)')
+        .select('pinned_gif_id, fwd_gifs:pinned_gif_id(id, title, gif_url, media_url, still_url, thumbnail_url, mp4_url, webm_url, tags, category, mood, source_video_url, media_type, is_animated, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata)')
         .eq('id', user.id)
         .maybeSingle();
       if (data?.fwd_gifs) {
@@ -107,6 +108,17 @@ const Profile: React.FC = () => {
           source_video_url: g.source_video_url || undefined,
           media_type: g.media_type || undefined,
           is_animated: g.is_animated ?? true,
+          trim_start: g.trim_start ?? null,
+          trim_end: g.trim_end ?? null,
+          original_duration: g.original_duration ?? null,
+          edited_duration: g.edited_duration ?? null,
+          crop_x: g.crop_x ?? null,
+          crop_y: g.crop_y ?? null,
+          crop_width: g.crop_width ?? null,
+          crop_height: g.crop_height ?? null,
+          crop_aspect_ratio: g.crop_aspect_ratio ?? null,
+          output_aspect_ratio: g.output_aspect_ratio ?? null,
+          edit_metadata: editMetadataFromDb(g),
         });
       }
     })();
@@ -130,7 +142,7 @@ const Profile: React.FC = () => {
     const packIds = packRows.map((p: any) => p.id);
     const { data: itemRows } = await supabase
       .from('fwd_library_pack_items')
-      .select('pack_id, gif_id, position, fwd_gifs(id, title, gif_url, media_url, still_url, thumbnail_url, mp4_url, webm_url, tags, category, mood, source_video_url, media_type, is_animated)')
+      .select('pack_id, gif_id, position, fwd_gifs(id, title, gif_url, media_url, still_url, thumbnail_url, mp4_url, webm_url, tags, category, mood, source_video_url, media_type, is_animated, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata)')
       .in('pack_id', packIds)
       .order('position', { ascending: true });
 
@@ -153,6 +165,17 @@ const Profile: React.FC = () => {
             source_video_url: g.source_video_url || undefined,
             media_type: g.media_type || undefined,
             is_animated: g.is_animated ?? true,
+            trim_start: g.trim_start ?? null,
+            trim_end: g.trim_end ?? null,
+            original_duration: g.original_duration ?? null,
+            edited_duration: g.edited_duration ?? null,
+            crop_x: g.crop_x ?? null,
+            crop_y: g.crop_y ?? null,
+            crop_width: g.crop_width ?? null,
+            crop_height: g.crop_height ?? null,
+            crop_aspect_ratio: g.crop_aspect_ratio ?? null,
+            output_aspect_ratio: g.output_aspect_ratio ?? null,
+            edit_metadata: editMetadataFromDb(g),
           } as Gif;
         })
         .filter(Boolean) as Gif[];
@@ -437,7 +460,7 @@ const Profile: React.FC = () => {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
                     <h2 className="text-xl sm:text-2xl font-black text-white truncate">{displayName}</h2>
-                    <BadgeCheck size={18} className="text-fuchsia-400 fill-fuchsia-400/20 flex-shrink-0" />
+                    <BadgeCheck size={14} className="text-fuchsia-400 fill-fuchsia-400/20 flex-shrink-0" />
                   </div>
                   <p className="text-zinc-500 text-sm">@{username}</p>
                   {profile?.location && <p className="text-zinc-500 text-xs mt-0.5">{profile.location}</p>}
@@ -486,6 +509,15 @@ const Profile: React.FC = () => {
                         webmUrl={pinnedGif.webm_url}
                         mediaType={pinnedGif.media_type}
                         isAnimated={pinnedGif.is_animated}
+                        editMetadata={pinnedGif.edit_metadata}
+                        trimStart={pinnedGif.trim_start}
+                        trimEnd={pinnedGif.trim_end}
+                        cropX={pinnedGif.crop_x}
+                        cropY={pinnedGif.crop_y}
+                        cropWidth={pinnedGif.crop_width}
+                        cropHeight={pinnedGif.crop_height}
+                        cropAspectRatio={pinnedGif.crop_aspect_ratio}
+                        outputAspectRatio={pinnedGif.output_aspect_ratio}
                         className="w-full h-full object-cover"
                       />
                     </div>
@@ -787,6 +819,15 @@ const Profile: React.FC = () => {
                             sourceVideoUrl={g.source_video_url}
                             mediaType={g.media_type}
                             isAnimated={g.is_animated}
+                            editMetadata={g.edit_metadata}
+                            trimStart={g.trim_start}
+                            trimEnd={g.trim_end}
+                            cropX={g.crop_x}
+                            cropY={g.crop_y}
+                            cropWidth={g.crop_width}
+                            cropHeight={g.crop_height}
+                            cropAspectRatio={g.crop_aspect_ratio}
+                            outputAspectRatio={g.output_aspect_ratio}
                             title={g.title}
                             className="w-full h-full object-cover"
                           />
