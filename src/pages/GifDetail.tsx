@@ -9,6 +9,7 @@ import FwdLogo from '@/components/FwdLogo';
 import BottomNav from '@/components/BottomNav';
 import GifCard from '@/components/GifCard';
 import FwdMediaPlayer from '@/components/FwdMediaPlayer';
+import RemixMediaRenderer from '@/components/RemixMediaRenderer';
 import FwdLibraryPicker from '@/components/FwdLibraryPicker';
 import { GIFS, findGif } from '@/data/gifs';
 import { Gif, useAppContext } from '@/contexts/AppContext';
@@ -137,6 +138,17 @@ const GifDetail: React.FC = () => {
           crop_aspect_ratio: data.crop_aspect_ratio ?? null,
           output_aspect_ratio: data.output_aspect_ratio ?? null,
           edit_metadata: editMetadataFromDb(data),
+          is_remix: data.is_remix ?? false,
+          remix_mode: data.remix_mode ?? null,
+          remix_media_url: data.remix_media_url ?? null,
+          remix_media_type: data.remix_media_type ?? null,
+          remix_layout: data.remix_layout ?? null,
+          remix_ai_recipe: data.remix_ai_recipe ?? null,
+          remix_caption: data.remix_caption ?? null,
+          remix_style: data.remix_style ?? null,
+          remix_mood: data.remix_mood ?? null,
+          remixed_from_gif_id: data.remixed_from_gif_id ?? null,
+          remixed_from_user_id: data.remixed_from_user_id ?? null,
         });
         setLikeCount(data.like_count || 0);
       }
@@ -495,30 +507,23 @@ const GifDetail: React.FC = () => {
           <>
             {/* Media */}
             <div className="relative rounded-3xl overflow-hidden glass-strong border border-fuchsia-500/40 neon-glow-purple aspect-square">
-              <FwdMediaPlayer
-                mp4Url={gif.mp4_url}
-                webmUrl={gif.webm_url}
-                gifUrl={gif.image}
-                posterUrl={gif.still_url}
-                sourceVideoUrl={gif.source_video_url}
-                mediaType={gif.media_type}
-                isAnimated={gif.is_animated}
-                editMetadata={gif.edit_metadata}
-                trimStart={gif.trim_start}
-                trimEnd={gif.trim_end}
-                cropX={gif.crop_x}
-                cropY={gif.crop_y}
-                cropWidth={gif.crop_width}
-                cropHeight={gif.crop_height}
-                cropAspectRatio={gif.crop_aspect_ratio}
-                outputAspectRatio={gif.output_aspect_ratio}
-                title={gif.title}
-                className="w-full h-full object-contain bg-black/60"
-                objectFit="contain"
-                lazy={false}
-              />
+              <RemixMediaRenderer gif={gif} />
+              {gif.is_remix && gif.remix_caption && (
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none flex flex-col justify-end p-4">
+                  <div className={`text-center mb-2 ${
+                    gif.remix_style === 'Meme' ? 'font-black uppercase text-2xl text-white drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] [text-shadow:-2px_-2px_0_#000,2px_-2px_0_#000,-2px_2px_0_#000,2px_2px_0_#000]' :
+                    gif.remix_style === 'Neon' ? 'font-bold text-xl text-fuchsia-400 drop-shadow-[0_0_10px_rgba(217,70,239,0.8)]' :
+                    'font-bold text-lg text-white drop-shadow-md'
+                  }`}>{gif.remix_caption}</div>
+                </div>
+              )}
               <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
-              <span className="absolute top-3 left-3 px-2.5 py-1 rounded-md bg-black/60 text-[11px] font-bold tracking-wider text-white border border-white/10">GIF</span>
+              <div className="absolute top-3 left-3 flex gap-1.5">
+                <span className="px-2.5 py-1 rounded-md bg-black/60 text-[11px] font-bold tracking-wider text-white border border-white/10">GIF</span>
+                {gif.is_remix && (
+                  <span className="px-2.5 py-1 rounded-md bg-fuchsia-600/80 text-[11px] font-bold tracking-wider text-white border border-fuchsia-400/30 shadow-[0_0_8px_rgba(217,70,239,0.5)]">REMIX</span>
+                )}
+              </div>
               <button type="button" className="absolute bottom-3 right-3 w-10 h-10 rounded-full bg-black/60 backdrop-blur flex items-center justify-center border border-white/15">
                 <Maximize2 size={16} className="text-white" />
               </button>
