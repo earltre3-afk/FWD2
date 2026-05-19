@@ -442,7 +442,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       remix_tags: payload.remix_tags ?? null,
     };
 
-    const { data, error } = await supabase.from('fwd_gifs').insert(insertPayload).select().single();
+    let { data, error } = await supabase.from('fwd_gifs').insert(insertPayload).select().single();
+
+    // If the insert failed because the migration hasn't been applied yet, retry
+    // without the new remix_mode/remix_layout/remix_ai_recipe/remix_tags columns.
+    if (error && /column .*(remix_mode|remix_media_url|remix_media_type|remix_layout|remix_ai_recipe|remix_tags)/.test(error.message)) {
+      const { remix_mode, remix_media_url, remix_media_type, remix_layout, remix_ai_recipe, remix_tags, ...basePayload } = insertPayload as any;
+      const fallback = await supabase.from('fwd_gifs').insert(basePayload).select().single();
+      data = fallback.data;
+      error = fallback.error;
+    }
 
     if (error || !data) return null;
 
