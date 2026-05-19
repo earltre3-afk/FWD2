@@ -53,10 +53,13 @@ const UploadDropzone: React.FC<Props> = ({ onUploaded, currentPreview }) => {
     }, 220);
 
     const ext = file.name.split('.').pop() || 'bin';
-    const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const path = `${user.id}/upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
     try {
-      const { error: upErr } = await supabase.storage.from('fwd-uploads').upload(path, file, {
+      // Upload to the PUBLIC fwd-gifs bucket. fwd-uploads is private and
+      // getPublicUrl() against a private bucket returns a URL that 400s,
+      // which previously left users staring at a broken preview.
+      const { error: upErr } = await supabase.storage.from('fwd-gifs').upload(path, file, {
         contentType: file.type,
         upsert: false,
       });
@@ -65,7 +68,7 @@ const UploadDropzone: React.FC<Props> = ({ onUploaded, currentPreview }) => {
       setProgress(94); setStatus('processing');
       // Small delay so the "Processing" state is visible — feels real
       await new Promise(r => setTimeout(r, 400));
-      const { data } = supabase.storage.from('fwd-uploads').getPublicUrl(path);
+      const { data } = supabase.storage.from('fwd-gifs').getPublicUrl(path);
       if (!data?.publicUrl) throw new Error('No public URL');
       setProgress(100); setStatus('success');
       onUploaded(data.publicUrl, file);

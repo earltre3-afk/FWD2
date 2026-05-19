@@ -61,8 +61,55 @@ export function FwdAnimatedGif({
   cropAspectRatio,
   outputAspectRatio,
 }: FwdAnimatedGifProps) {
-  const isMp4 = MP4_EXT_RE.test(gifUrl);
-  const isWebm = WEBM_EXT_RE.test(gifUrl);
+  // Route the URL to the correct prop. Extension regex catches https URLs with
+  // .mp4/.webm; mediaType catches blob: URLs (no extension) and CDN URLs that
+  // do not advertise an extension. Without the mediaType branch, a recorded
+  // video preview (blob: URL + media_type=video/webm) is passed as gifUrl,
+  // resolveFwdMedia silently drops the blob URL, and the player renders nothing
+  // — which is what produced the black-screen-after-recording bug.
+  const isMp4ByExt = MP4_EXT_RE.test(gifUrl);
+  const isWebmByExt = WEBM_EXT_RE.test(gifUrl);
+  const mt = (mediaType || '').toLowerCase();
+  const isMp4ByMime = mt === 'video/mp4' || mt === 'video/quicktime' || mt === 'video/x-m4v';
+  const isWebmByMime = mt === 'video/webm' || mt === 'video/ogg';
+  const isMp4 = isMp4ByExt || isMp4ByMime;
+  const isWebm = isWebmByExt || isWebmByMime;
+
+  // Blob URLs always need to be rendered through a <video> source when the
+  // media is video — FwdMediaPlayer's resolveFwdMedia drops blob URLs.
+  // For blob video previews, render a native <video> directly.
+  const isBlob = typeof gifUrl === 'string' && gifUrl.startsWith('blob:');
+  if (isBlob && (isMp4 || isWebm)) {
+    return (
+      <video
+        src={gifUrl}
+        autoPlay
+        loop
+        muted
+        playsInline
+        controls={false}
+        preload="auto"
+        className={className}
+        style={style}
+        onLoadedData={() => onLoad?.()}
+        onError={() => onError?.()}
+      />
+    );
+  }
+  // Blob URLs that are images (uploaded image preview before transcode)
+  if (isBlob) {
+    return (
+      <img
+        src={gifUrl}
+        alt={title}
+        draggable={false}
+        className={className}
+        style={style}
+        onLoad={() => onLoad?.()}
+        onError={() => onError?.()}
+      />
+    );
+  }
 
   return (
     <FwdMediaPlayer

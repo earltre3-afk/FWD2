@@ -129,6 +129,8 @@ export interface CreateGifPayload {
   file_size_bytes?: number;
   duration_ms?: number;
   source_video_url?: string;
+  mp4_url?: string;
+  webm_url?: string;
   media_type?: string;
   is_animated?: boolean;
   trim_start?: number | null;
@@ -418,6 +420,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       thumbnail_url: payload.still_url ?? null,
       preview_url: payload.still_url ?? null,
       source_video_url: payload.source_video_url ?? null,
+      mp4_url: payload.mp4_url ?? null,
+      webm_url: payload.webm_url ?? null,
       media_type: payload.media_type ?? 'image/gif',
       is_animated: payload.is_animated ?? true,
       tags: payload.tags,
@@ -468,11 +472,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     let { data, error } = await supabase.from('fwd_gifs').insert(insertPayload).select().single();
 
-    // If the insert failed because the migration hasn't been applied yet, retry
-    // without the new remix_mode/remix_layout/remix_ai_recipe/remix_tags columns.
+    // If the insert failed because optional columns are missing on this DB,
+    // retry progressively without them. Order: remix columns first, then mp4/webm.
     if (error && /column .*(remix_mode|remix_media_url|remix_media_type|remix_layout|remix_ai_recipe|remix_tags)/.test(error.message)) {
       const { remix_mode, remix_media_url, remix_media_type, remix_layout, remix_ai_recipe, remix_tags, ...basePayload } = insertPayload as any;
       const fallback = await supabase.from('fwd_gifs').insert(basePayload).select().single();
+      data = fallback.data;
+      error = fallback.error;
+    }
+    if (error && /column .*(mp4_url|webm_url)/.test(error.message)) {
+      const stripped = { ...(insertPayload as any) };
+      delete stripped.mp4_url;
+      delete stripped.webm_url;
+      delete stripped.remix_mode;
+      delete stripped.remix_media_url;
+      delete stripped.remix_media_type;
+      delete stripped.remix_layout;
+      delete stripped.remix_ai_recipe;
+      delete stripped.remix_tags;
+      const fallback = await supabase.from('fwd_gifs').insert(stripped).select().single();
       data = fallback.data;
       error = fallback.error;
     }

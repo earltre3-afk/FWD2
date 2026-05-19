@@ -299,13 +299,23 @@ const CreateGif: React.FC = () => {
         const type = mimeType || chunksRef.current[0]?.type || 'video/webm';
         const blob = new Blob(chunksRef.current, { type });
 
+        if (import.meta.env.DEV) {
+          console.log('[CreateGif] recorder.onstop', {
+            blobSize: blob.size,
+            blobType: blob.type,
+            chunkCount: chunksRef.current.length,
+            mimeType,
+          });
+        }
+
         if (blob.size === 0) {
           setCreationState('error');
           setErrorMsg('Recording captured no data. Tap Try Again and record for at least 1 second.');
           return;
         }
 
-        const file = new File([blob], `recorded-fwd-${Date.now()}.webm`, { type });
+        const ext = extensionForMime(type);
+        const file = new File([blob], `recorded-fwd-${Date.now()}.${ext}`, { type });
         const url = URL.createObjectURL(blob);
         setUploadedFile(file);
         setMediaType(type);
@@ -320,6 +330,14 @@ const CreateGif: React.FC = () => {
         setPreviewUrl(url);
         setPreviewNonce(Date.now());
         setCreationState('preview');
+
+        if (import.meta.env.DEV) {
+          console.log('[CreateGif] preview attached', {
+            previewUrlIsBlob: url.startsWith('blob:'),
+            previewUrlType: 'blob:' + ext,
+            mediaTypeSet: type,
+          });
+        }
       };
       setRecordSeconds(0);
       recorder.start(100); // collect a chunk every 100ms — prevents empty blobs on stop
@@ -422,16 +440,18 @@ const CreateGif: React.FC = () => {
       toast({ title: 'Sign in required', description: 'Sign in to upload files.', variant: 'destructive' });
       return;
     }
-    // Upload to permanent storage immediately — never leave a blob URL as previewUrl
+    // Upload to permanent storage immediately — never leave a blob URL as previewUrl.
+    // Use the public fwd-gifs bucket so the resulting URL is actually fetchable;
+    // fwd-uploads is private and getPublicUrl() against it returns a broken URL.
     const ext = file.name.split('.').pop() || 'bin';
-    const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const path = `${user.id}/source-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
     try {
-      const { error: upErr } = await supabase.storage.from('fwd-uploads').upload(path, file, {
+      const { error: upErr } = await supabase.storage.from('fwd-gifs').upload(path, file, {
         contentType: file.type,
         upsert: false,
       });
       if (upErr) throw upErr;
-      const { data } = supabase.storage.from('fwd-uploads').getPublicUrl(path);
+      const { data } = supabase.storage.from('fwd-gifs').getPublicUrl(path);
       if (!data?.publicUrl) throw new Error('No public URL returned');
       handleUploaded(data.publicUrl, file);
     } catch (err: any) {
@@ -556,6 +576,32 @@ const CreateGif: React.FC = () => {
       if (gifUrl.startsWith('blob:')) {
         throw new Error('Upload succeeded but preview URL failed. Try again.');
       }
+      if (!gifUrl.startsWith('http')) {
+        throw new Error('Finish processing your GIF before saving.');
+      }
+
+      // Derive an mp4/webm URL from the source video so playback has a video
+      // fallback if the GIF render appears frozen. The encoded GIF stays the
+      // primary playback source via `image`/`gif_url`.
+      let webmUrlField: string | undefined;
+      let mp4UrlField: string | undefined;
+      if (sourceVideoUrl) {
+        const srcType = (uploadedFile?.type || mediaType || '').toLowerCase();
+        if (srcType.includes('webm')) webmUrlField = sourceVideoUrl;
+        else if (srcType.includes('mp4') || srcType.includes('quicktime')) mp4UrlField = sourceVideoUrl;
+      }
+
+      if (import.meta.env.DEV) {
+        console.log('[CreateGif] pre-save payload', {
+          gifUrlIsHttps: gifUrl.startsWith('https://'),
+          gifUrlExt: gifUrl.split('.').pop()?.split('?')[0],
+          isAnimated,
+          sourceVideoUrlPresent: !!sourceVideoUrl,
+          webmUrlPresent: !!webmUrlField,
+          mp4UrlPresent: !!mp4UrlField,
+          uploadedFileType: uploadedFile?.type,
+        });
+      }
 
       const aiMetadata = !aiApplied && gifUrl.startsWith('http')
         ? await suggestMetadata(gifUrl)
@@ -580,6 +626,8 @@ const CreateGif: React.FC = () => {
         source_type: gifBlob ? (uploadedFile?.type === 'image/gif' ? 'uploaded' : 'created') : 'external',
         file_size_bytes: gifBlob?.size,
         source_video_url: sourceVideoUrl,
+        mp4_url: mp4UrlField,
+        webm_url: webmUrlField,
         media_type: 'image/gif',
         is_animated: isAnimated,
         trim_start: finalEditMetadata.trimStart,
