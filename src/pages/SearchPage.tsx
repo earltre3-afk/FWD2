@@ -410,18 +410,8 @@ const SearchPage: React.FC = () => {
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 lg:gap-4">
               {gridItems.map((item) => (
-                <div key={item.key} className="relative min-w-0">
+                <div key={item.key} className="min-w-0">
                   <GifCard gif={item.gif} onClick={item.onClick} showShare />
-                  {item.isScoutPick && (
-                    <span className="absolute left-2 top-2 z-10 rounded bg-cyan-400/90 px-1.5 py-0.5 text-[8px] font-black uppercase text-black pointer-events-none">
-                      Scout
-                    </span>
-                  )}
-                  {!item.isScoutPick && (item.source === 'giphy' || item.source === 'tenor') && (
-                    <span className="absolute left-2 top-2 z-10 rounded bg-black/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-cyan-100 border border-cyan-300/20 pointer-events-none">
-                      {item.source}
-                    </span>
-                  )}
                 </div>
               ))}
             </div>
