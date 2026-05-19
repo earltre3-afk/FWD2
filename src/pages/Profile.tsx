@@ -15,6 +15,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/components/ui/use-toast';
 import { supabase } from '@/lib/supabase';
 import { editMetadataFromDb } from '@/lib/mediaEdits';
+import { resolveFwdMedia } from '@/lib/fwdMedia';
 
 interface Pack {
   id: string;
@@ -42,6 +43,83 @@ const Profile: React.FC = () => {
   const { user, profile, signOut, updateProfile, updatePassword } = useAuth();
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const myPosts = feedPosts.filter(p => p.user_id === user?.id);
+
+  // Independent posted-GIFs fetch so Profile doesn't depend on /feed being visited
+  const [myPostedGifs, setMyPostedGifs] = useState<Gif[]>([]);
+  const [postedLoading, setPostedLoading] = useState(false);
+
+  useEffect(() => {
+    if (!user) { setMyPostedGifs([]); return; }
+    let cancel = false;
+    (async () => {
+      setPostedLoading(true);
+      const { data, error } = await supabase
+        .from('fwd_feed_posts')
+        .select(`
+          id, gif_id,
+          gif:gif_id ( id, title, gif_url, media_url, mp4_url, webm_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, tags, category, mood, owner_user_id, allow_reuse, allow_download, visibility, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata, remixed_from_gif_id, remixed_from_user_id, remix_caption, remix_style, remix_mood, is_remix )
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (cancel) return;
+      if (error || !data) { setPostedLoading(false); return; }
+      const gifs = data
+        .map((p: any) => {
+          const g = Array.isArray(p.gif) ? p.gif[0] : p.gif;
+          if (!g) return null;
+          const media = resolveFwdMedia(g);
+          return {
+            id: g.id,
+            title: g.title || 'Untitled',
+            image: media.animatedUrl || '',
+            still_url: media.thumbnailUrl || undefined,
+            mp4_url: media.mp4Url || undefined,
+            webm_url: media.webmUrl || undefined,
+            tags: g.tags || [],
+            category: g.category || 'Reactions',
+            mood: g.mood || undefined,
+            user_id: g.owner_user_id,
+            source_video_url: media.sourceVideoUrl || undefined,
+            media_type: g.media_type || undefined,
+            is_animated: g.is_animated ?? media.isLikelyAnimated,
+            allow_reuse: g.allow_reuse ?? true,
+            allow_download: g.allow_download ?? true,
+            visibility: g.visibility || 'public',
+            trim_start: g.trim_start ?? null,
+            trim_end: g.trim_end ?? null,
+            original_duration: g.original_duration ?? null,
+            edited_duration: g.edited_duration ?? null,
+            crop_x: g.crop_x ?? null,
+            crop_y: g.crop_y ?? null,
+            crop_width: g.crop_width ?? null,
+            crop_height: g.crop_height ?? null,
+            crop_aspect_ratio: g.crop_aspect_ratio ?? null,
+            output_aspect_ratio: g.output_aspect_ratio ?? null,
+            edit_metadata: editMetadataFromDb(g),
+            is_remix: g.is_remix ?? false,
+            remix_caption: g.remix_caption ?? null,
+            remix_style: g.remix_style ?? null,
+            remix_mood: g.remix_mood ?? null,
+            remixed_from_gif_id: g.remixed_from_gif_id ?? null,
+          } as Gif;
+        })
+        .filter(Boolean) as Gif[];
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Profile:posted] fetched', gifs.length, 'GIFs');
+        gifs.slice(0, 3).forEach(g => console.log('  posted gif', g.id, {
+          image: g.image || null,
+          mp4_url: g.mp4_url || null,
+          webm_url: g.webm_url || null,
+          still_url: g.still_url || null,
+          blob: g.image?.startsWith('blob:') ?? false,
+        }));
+      }
+      setMyPostedGifs(gifs);
+      setPostedLoading(false);
+    })();
+    return () => { cancel = true; };
+  }, [user]);
 
   // Packs
   const [packs, setPacks] = useState<Pack[]>([]);
@@ -257,7 +335,7 @@ const Profile: React.FC = () => {
     toast({ title: 'Pinned FWD cleared' });
   };
 
-  const postedGifs: Gif[] = myPosts.map(p => p.gif).filter(Boolean) as Gif[];
+  const postedGifs: Gif[] = myPostedGifs.length > 0 ? myPostedGifs : myPosts.map(p => p.gif).filter(Boolean) as Gif[];
   const savedGifs: Gif[] = savedLibrary
     .filter(g => {
       if (libraryFilter === 'Created') return g.user_id === user?.id;
@@ -500,7 +578,7 @@ const Profile: React.FC = () => {
                   <div className="flex gap-3 items-center">
                     <div
                       className="w-16 h-16 rounded-xl overflow-hidden border border-fuchsia-500/30 shrink-0 cursor-pointer"
-                      onClick={() => nav(`/gif/${pinnedGif.id}`)}
+                      onClick={() => nav(`/gif/${pinnedGif.id}`, { state: { gif: pinnedGif } })}
                     >
                       <FwdMediaPlayer
                         gifUrl={pinnedGif.image}
@@ -569,6 +647,11 @@ const Profile: React.FC = () => {
           })}
         </div>
 
+        {tab === 'created' && process.env.NODE_ENV === 'development' && (() => {
+          console.log('[Profile:created] userGifs count', userGifs.length);
+          userGifs.slice(0, 3).forEach(g => console.log('  created gif', g.id, { image: g.image || null, mp4_url: g.mp4_url || null, blob: g.image?.startsWith('blob:') ?? false }));
+          return null;
+        })()}
         {tab === 'created' && (
           <>
             <div className="flex items-center justify-between mt-6 mb-3">
@@ -648,7 +731,7 @@ const Profile: React.FC = () => {
                             },
                           });
                         } else {
-                          nav(`/gif/${g.id}`);
+                          nav(`/gif/${g.id}`, { state: { gif: g } });
                         }
                       }}
                     />
@@ -666,7 +749,11 @@ const Profile: React.FC = () => {
         {tab === 'posted' && (
           <>
             <h3 className="text-sm font-black text-white tracking-wider mt-6 mb-3">POSTED TO FEED</h3>
-            {myPosts.length === 0 ? (
+            {postedLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="w-7 h-7 border-2 border-fuchsia-400 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : postedGifs.length === 0 ? (
               <div className="glass-strong rounded-3xl p-6 sm:p-8 text-center border border-fuchsia-500/20">
                 <p className="text-zinc-400 text-sm sm:text-base mb-4">You haven't posted to the feed yet.</p>
                 <button onClick={() => nav('/feed')}
@@ -676,7 +763,7 @@ const Profile: React.FC = () => {
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                {myPosts.map(p => p.gif && <GifCard key={p.id} gif={p.gif} showHeart={false} />)}
+                {postedGifs.map(g => <GifCard key={g.id} gif={g} showHeart={false} />)}
               </div>
             )}
           </>

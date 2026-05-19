@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import {
   ArrowLeft, Heart, Link as LinkIcon, Share2, Flag, Maximize2, Flame,
   MessageCircle, Send, Trash2, RefreshCw, Download, Smile,
@@ -64,10 +64,13 @@ const uuidLike = (value?: string) => Boolean(value && /^[0-9a-f-]{36}$/i.test(va
 const GifDetail: React.FC = () => {
   const { id } = useParams();
   const nav = useNavigate();
+  const location = useLocation();
   const { toggleFavorite, isFavorite } = useAppContext();
   const { user, profile } = useAuth();
-  const [gif, setGif] = useState<Gif | null>(() => findGif(id || '') || null);
-  const [loading, setLoading] = useState(Boolean(uuidLike(id)));
+  // Priority: route state > static data > null (will fetch from DB if UUID)
+  const stateGif = (location.state as any)?.gif as Gif | undefined;
+  const [gif, setGif] = useState<Gif | null>(() => stateGif || findGif(id || '') || null);
+  const [loading, setLoading] = useState(Boolean(!stateGif && uuidLike(id)));
   const [liked, setLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
   const [comments, setComments] = useState<CommentRow[]>([]);
@@ -90,11 +93,15 @@ const GifDetail: React.FC = () => {
   const [remixes, setRemixes] = useState<Gif[]>([]);
   const fav = gif ? isFavorite(gif.id, gif.image) : false;
 
-  // Load GIF from DB if UUID
+  // Load GIF from DB if UUID (route state provides immediate data, DB provides richer data)
   useEffect(() => {
     let cancel = false;
     (async () => {
-      if (!id || !uuidLike(id)) return;
+      // If we already have a gif from route state and the id is not a UUID, skip DB fetch
+      if (!id || !uuidLike(id)) {
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       const { data } = await supabase.from('fwd_gifs').select('*').eq('id', id).maybeSingle();
       if (cancel) return;
@@ -480,8 +487,9 @@ const GifDetail: React.FC = () => {
           <div className="glass-strong rounded-3xl border border-fuchsia-500/30 aspect-square animate-pulse" />
         ) : !gif ? (
           <div className="glass-strong rounded-3xl p-8 text-center border border-fuchsia-500/20">
-            <h1 className="text-xl font-black text-white">FWD not found</h1>
-            <p className="text-zinc-400 text-sm mt-1">This GIF is private or no longer available.</p>
+            <h1 className="text-xl font-black text-white">Couldn't load this GIF</h1>
+            <p className="text-zinc-400 text-sm mt-1 mb-4">This GIF may be private or no longer available.</p>
+            <button onClick={() => nav(-1)} className="px-5 py-2.5 rounded-xl bg-fuchsia-600 text-white text-sm font-bold">Go Back</button>
           </div>
         ) : (
           <>
@@ -779,8 +787,8 @@ const GifDetail: React.FC = () => {
       />
       <Sheet open={reactPickerOpen} onOpenChange={setReactPickerOpen}>
         <SheetContent
-          side="bottom"
-          className="glass-strong border-fuchsia-500/30 rounded-t-3xl px-5 pt-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
+          side="center"
+          className="glass-strong border-fuchsia-500/30 rounded-2xl px-5 pt-5 pb-5 overflow-y-auto"
         >
           <SheetHeader>
             <SheetTitle className="text-white">React</SheetTitle>
@@ -803,13 +811,14 @@ const GifDetail: React.FC = () => {
       </Sheet>
       <Sheet open={commentsOpen} onOpenChange={setCommentsOpen}>
         <SheetContent
-          side="bottom"
-          className="glass-strong border-fuchsia-500/30 rounded-t-3xl px-5 pt-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] max-h-[82vh] overflow-y-auto"
+          side="center"
+          className="glass-strong border-fuchsia-500/30 rounded-2xl pt-5 pb-4 px-5 flex flex-col"
         >
-          <SheetHeader>
+          <SheetHeader className="shrink-0">
             <SheetTitle className="text-white">Comments</SheetTitle>
           </SheetHeader>
-          <div className="mt-4 space-y-3">
+          {/* Scrollable comment list — input is NOT inside here */}
+          <div className="mt-4 space-y-3 flex-1 overflow-y-auto min-h-0 pb-1">
             {comments.length === 0 ? (
               <p className="text-sm text-zinc-500">No comments yet. Start the conversation.</p>
             ) : comments.map((c) => {
@@ -826,23 +835,26 @@ const GifDetail: React.FC = () => {
                 </div>
               );
             })}
-            <div className="flex gap-2 pt-2">
-              <input
-                value={comment}
-                onChange={e => setComment(e.target.value.slice(0, 500))}
-                placeholder={user ? 'Add a comment…' : 'Sign in to comment'}
-                readOnly={!user}
-                className="flex-1 min-w-0 rounded-xl bg-black/40 border border-fuchsia-500/25 px-3 py-2.5 text-sm text-white outline-none placeholder-zinc-500"
-              />
-              <button
-                type="button"
-                onClick={postComment}
-                disabled={commentBusy || !comment.trim()}
-                className="px-4 rounded-xl bg-fuchsia-600 text-sm font-bold text-white disabled:opacity-50"
-              >
-                Post
-              </button>
-            </div>
+          </div>
+          {/* Input pinned outside the scroll area — always visible, never covered */}
+          <div className="flex gap-2 pt-3 border-t border-white/5 shrink-0">
+            <input
+              value={comment}
+              onChange={e => setComment(e.target.value.slice(0, 500))}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); postComment(); } }}
+              placeholder={user ? 'Add a comment…' : 'Sign in to comment'}
+              readOnly={!user}
+              autoComplete="off"
+              className="flex-1 min-w-0 rounded-xl bg-black/40 border border-fuchsia-500/25 px-3 py-2.5 text-sm text-white outline-none placeholder-zinc-500 focus:border-fuchsia-400"
+            />
+            <button
+              type="button"
+              onClick={postComment}
+              disabled={commentBusy || !comment.trim()}
+              className="px-4 rounded-xl bg-fuchsia-600 text-sm font-bold text-white disabled:opacity-50"
+            >
+              Post
+            </button>
           </div>
         </SheetContent>
       </Sheet>

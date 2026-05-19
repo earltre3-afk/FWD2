@@ -4,6 +4,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useUserMemory } from '@/hooks/useUserMemory';
 import { resolveFwdMedia } from '@/lib/fwdMedia';
 import { editMetadataFromDb, MediaEditMetadata } from '@/lib/mediaEdits';
+import { assertNoBlobUrls } from '@/lib/blobGuard';
+
 
 export interface Gif {
   id: string;
@@ -442,6 +444,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       remix_tags: payload.remix_tags ?? null,
     };
 
+    // Hard guard: never persist blob: URLs to Supabase
+    assertNoBlobUrls({
+      gif_url: insertPayload.gif_url,
+      media_url: insertPayload.media_url,
+      still_url: insertPayload.still_url,
+      thumbnail_url: insertPayload.thumbnail_url,
+      preview_url: insertPayload.preview_url,
+      source_video_url: insertPayload.source_video_url,
+      image: payload.image,
+    }, 'createUserGif');
+
     let { data, error } = await supabase.from('fwd_gifs').insert(insertPayload).select().single();
 
     // If the insert failed because the migration hasn't been applied yet, retry
@@ -538,7 +551,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       .select(`
         id, user_id, gif_id, caption, visibility, like_count, comment_count, save_count, reuse_count, created_at,
         profile:fwd_profiles!user_id ( display_name, username, avatar_url ),
-        gif:gif_id ( id, gif_url, media_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, title, allow_reuse, allow_download, owner_user_id, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata, tags, category, mood, remixed_from_gif_id, remixed_from_user_id, remix_caption, remix_style, remix_mood, is_remix, original_profile:fwd_profiles!remixed_from_user_id ( display_name, username ) ),
+        gif:gif_id ( id, gif_url, media_url, mp4_url, webm_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, title, allow_reuse, allow_download, owner_user_id, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata, tags, category, mood, remixed_from_gif_id, remixed_from_user_id, remix_caption, remix_style, remix_mood, is_remix, original_profile:fwd_profiles!remixed_from_user_id ( display_name, username ) ),
         remix_gif:gif_id ( remixed_from_gif_id )
       `)
       .eq('visibility', 'public')
@@ -653,23 +666,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setLikedPostIds(prev => new Set([...prev, ...likedSet]));
     setSavedPostIds(prev => new Set([...prev, ...savedSet]));
 
-    return sortedData.map((p: any): FwdPost => ({
-      id: p.id,
-      user_id: p.user_id,
-      gif_id: p.gif_id,
-      gif: p.gif ? dbGifToGif(p.gif) : null,
-      caption: p.caption,
-      visibility: p.visibility,
-      like_count: p.like_count,
-      comment_count: p.comment_count,
-      save_count: p.save_count,
-      reuse_count: p.reuse_count,
-      created_at: p.created_at,
-      profile: Array.isArray(p.profile) ? p.profile[0] : p.profile,
-      liked_by_me: likedSet.has(p.id),
-      saved_by_me: savedSet.has(p.id),
-      remixed_from_gif_id: Array.isArray(p.remix_gif) ? p.remix_gif[0]?.remixed_from_gif_id : p.remix_gif?.remixed_from_gif_id,
-    }));
+    const mapped = sortedData.map((p: any): FwdPost => {
+      const rawGif = Array.isArray(p.gif) ? p.gif[0] : p.gif;
+      const resolvedGif = rawGif ? dbGifToGif(rawGif) : null;
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Feed] post', p.id, {
+          gif_id: p.gif_id,
+          gif_exists: !!rawGif,
+          gif_url: rawGif?.gif_url ?? null,
+          media_url: rawGif?.media_url ?? null,
+          mp4_url: rawGif?.mp4_url ?? null,
+          webm_url: rawGif?.webm_url ?? null,
+          still_url: rawGif?.still_url ?? null,
+          thumbnail_url: rawGif?.thumbnail_url ?? null,
+          preview_url: rawGif?.preview_url ?? null,
+          source_video_url: rawGif?.source_video_url ?? null,
+          resolved_image: resolvedGif?.image ?? null,
+          resolved_mp4: resolvedGif?.mp4_url ?? null,
+          blob_gif: resolvedGif?.image?.startsWith('blob:') ?? false,
+          unavailable: !resolvedGif || (!resolvedGif.image && !resolvedGif.mp4_url && !resolvedGif.webm_url && !resolvedGif.source_video_url && !resolvedGif.still_url),
+        });
+      }
+
+      return {
+        id: p.id,
+        user_id: p.user_id,
+        gif_id: p.gif_id,
+        gif: resolvedGif,
+        caption: p.caption,
+        visibility: p.visibility,
+        like_count: p.like_count,
+        comment_count: p.comment_count,
+        save_count: p.save_count,
+        reuse_count: p.reuse_count,
+        created_at: p.created_at,
+        profile: Array.isArray(p.profile) ? p.profile[0] : p.profile,
+        liked_by_me: likedSet.has(p.id),
+        saved_by_me: savedSet.has(p.id),
+        remixed_from_gif_id: Array.isArray(p.remix_gif) ? p.remix_gif[0]?.remixed_from_gif_id : p.remix_gif?.remixed_from_gif_id,
+      };
+    });
+    return mapped;
   }, []);
 
   const feedNeedsRefresh = useRef(false);
@@ -778,7 +816,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       caption: caption.trim() || null,
     }).eq('id', postId).select(`
       *,
-      gif:gif_id ( id, gif_url, media_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, title, allow_reuse, allow_download, owner_user_id, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata, original_profile:fwd_profiles!remixed_from_user_id ( display_name, username ) ),
+      gif:gif_id ( id, gif_url, media_url, mp4_url, webm_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, title, allow_reuse, allow_download, owner_user_id, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata, original_profile:fwd_profiles!remixed_from_user_id ( display_name, username ) ),
       profile:fwd_feed_posts_user_profiles_fk ( display_name, username, avatar_url )
     `).maybeSingle();
 
@@ -821,6 +859,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       : await supabase.from('fwd_post_likes').upsert({ post_id: postId, user_id: user.id }, { onConflict: 'post_id,user_id' });
 
     if (error) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[toggleLike] failed:', { code: error.code, message: error.message, details: error.details, hint: error.hint });
+      }
       setLikedPostIds(prev => {
         const next = new Set(prev);
         if (liked) next.add(postId);

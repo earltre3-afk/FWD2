@@ -39,6 +39,8 @@ const STILL_RE = /\.(png|jpe?g|webp|avif)(?:[?#].*)?$/i;
 
 const cleanUrl = (value?: string | null) => {
   const next = typeof value === 'string' ? value.trim() : '';
+  // Silently drop blob: URLs — they are transient and must never be used as a persisted source
+  if (next.startsWith('blob:')) return null;
   return next || null;
 };
 
@@ -53,6 +55,20 @@ export const isStillImageUrl = (value?: string | null) => Boolean(value && STILL
 
 const isGifMime = (value?: string | null) => value?.toLowerCase() === 'image/gif';
 const isVideoMime = (value?: string | null) => value?.toLowerCase().startsWith('video/');
+
+/**
+ * Returns true when the GIF record has ONLY blob: URLs and no permanent media.
+ * Use this to show a "This media needs to be re-uploaded" state.
+ */
+export const isBlobOnlyMedia = (item: FwdMediaLike): boolean => {
+  const all = [
+    item.gif_url, item.image_url, item.image, item.media_url, item.source_url,
+    item.mp4_url, item.webm_url, item.source_video_url, item.preview_url,
+  ];
+  const hasPermanent = all.some(u => u && !u.startsWith('blob:') && u.startsWith('http'));
+  const hasBlob = all.some(u => u?.startsWith('blob:'));
+  return !hasPermanent && hasBlob;
+};
 
 export function resolveFwdMedia(item: FwdMediaLike): ResolvedFwdMedia {
   const mediaTypeHint = item.media_type?.toLowerCase() || '';

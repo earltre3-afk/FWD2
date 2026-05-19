@@ -47,8 +47,8 @@ const FwdDownloadSheet: React.FC<FwdDownloadSheetProps> = ({ open, onOpenChange,
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
-        side="bottom"
-        className="glass-strong border-fuchsia-500/30 rounded-t-3xl px-5 pt-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
+        side="center"
+        className="glass-strong border-fuchsia-500/30 rounded-2xl px-5 pt-5 pb-5 overflow-y-auto"
       >
         <SheetHeader>
           <SheetTitle className="text-white">Download FWD</SheetTitle>

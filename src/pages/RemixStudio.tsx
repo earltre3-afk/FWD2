@@ -11,6 +11,7 @@ import { useAppContext, Gif } from '@/contexts/AppContext';
 import FwdMediaPlayer from '@/components/FwdMediaPlayer';
 import { toast } from '@/components/ui/use-toast';
 import { resolveFwdMedia } from '@/lib/fwdMedia';
+import { isBlobUrl } from '@/lib/blobGuard';
 
 // ─────────────────────────────────────────────
 // Constants
@@ -153,8 +154,23 @@ const RemixStudio: React.FC = () => {
         });
       }
 
-      // A. Route state has usable media
-      if (stateGif && (stateGif.image || stateGif.mp4_url)) {
+      // A. Route state has usable media — check all possible media fields
+      const stateHasMedia = stateGif && (
+        stateGif.image || stateGif.mp4_url || stateGif.webm_url ||
+        stateGif.source_video_url || stateGif.still_url
+      );
+      if (import.meta.env.DEV) {
+        console.log('[RemixStudio] State check', {
+          hasState: !!stateGif,
+          stateHasMedia,
+          image: stateGif?.image,
+          mp4_url: stateGif?.mp4_url,
+          webm_url: stateGif?.webm_url,
+          source_video_url: stateGif?.source_video_url,
+          still_url: stateGif?.still_url,
+        });
+      }
+      if (stateHasMedia) {
         setOriginalGif(stateGif);
         setLoading(false);
         return;
@@ -494,6 +510,13 @@ const RemixStudio: React.FC = () => {
     try {
       const mediaUrl = replacement?.remoteUrl || originalGif.image;
       const mediaType = replacement ? replacement.mimeType : (originalGif.media_type || 'image/gif');
+
+      // Hard guard: block save if resolved mediaUrl is a blob URL
+      if (isBlobUrl(mediaUrl)) {
+        toast({ title: 'Upload still in progress', description: 'Finish uploading media before saving.', variant: 'destructive' });
+        setSaving(false);
+        return;
+      }
       const isAnimated = replacement
         ? (isVideoMime(replacement.mimeType) || replacement.mimeType === 'image/gif')
         : (originalGif.is_animated ?? true);

@@ -415,12 +415,30 @@ const CreateGif: React.FC = () => {
     }
   }, [suggestMetadata, title]);
 
-  const handleDirectFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleDirectFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    handleUploaded(url, file);
+    if (!user) {
+      toast({ title: 'Sign in required', description: 'Sign in to upload files.', variant: 'destructive' });
+      return;
+    }
+    // Upload to permanent storage immediately — never leave a blob URL as previewUrl
+    const ext = file.name.split('.').pop() || 'bin';
+    const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    try {
+      const { error: upErr } = await supabase.storage.from('fwd-uploads').upload(path, file, {
+        contentType: file.type,
+        upsert: false,
+      });
+      if (upErr) throw upErr;
+      const { data } = supabase.storage.from('fwd-uploads').getPublicUrl(path);
+      if (!data?.publicUrl) throw new Error('No public URL returned');
+      handleUploaded(data.publicUrl, file);
+    } catch (err: any) {
+      toast({ title: 'Upload failed', description: err?.message || 'Try again.', variant: 'destructive' });
+    }
   };
+
 
   const filterStyle = (() => {
     switch (filter) {

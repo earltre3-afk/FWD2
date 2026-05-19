@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bookmark, Play, Share2, Trash2 } from 'lucide-react';
+import { Bookmark, Play, Share2, Trash2, AlertTriangle } from 'lucide-react';
 import { Gif, useAppContext } from '@/contexts/AppContext';
 import FwdMediaPlayer from '@/components/FwdMediaPlayer';
 import { toast } from '@/components/ui/use-toast';
 import { stopActionEvent } from '@/lib/actionEvents';
 import { shareFwdItem, getFwdShareUrl } from '@/lib/fwdShare';
+import { isBlobUrl } from '@/lib/blobGuard';
 
 interface Props {
   gif: Gif;
@@ -33,7 +34,7 @@ const GifCard: React.FC<Props> = ({
 
   const handleClick = () => {
     if (onClick) onClick(gif);
-    else nav(`/gif/${gif.id}`);
+    else nav(`/gif/${gif.id}`, { state: { gif } });
   };
 
   const shareGif = async () => {
@@ -54,6 +55,14 @@ const GifCard: React.FC<Props> = ({
   if (dead) return (
     <div className={`relative rounded-xl sm:rounded-2xl overflow-hidden glass border border-white/5 ${tall ? 'aspect-[3/4]' : 'aspect-square'} flex items-center justify-center ${className}`}>
       <span className="text-[10px] font-mono text-zinc-700 select-none">GIF</span>
+    </div>
+  );
+
+  // Blob URL means this GIF was saved with a temporary URL that is now invalid
+  if (isBlobUrl(gif.image) && !gif.mp4_url && !gif.webm_url && !gif.source_video_url) return (
+    <div className={`relative rounded-xl sm:rounded-2xl overflow-hidden glass border border-amber-500/20 ${tall ? 'aspect-[3/4]' : 'aspect-square'} flex flex-col items-center justify-center gap-1.5 p-3 text-center ${className}`}>
+      <AlertTriangle size={18} className="text-amber-400" />
+      <span className="text-[10px] text-amber-300 font-semibold leading-tight">This media needs to be re-uploaded.</span>
     </div>
   );
 
