@@ -412,7 +412,7 @@ const GifDetail: React.FC = () => {
       toast({ title: 'Cannot remix private content', variant: 'destructive' });
       return;
     }
-    nav(`/remix/${gif.id}`);
+    nav(`/remix/${gif.id}`, { state: { gif } });
   };
 
   // Add to Pack

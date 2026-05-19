@@ -451,7 +451,7 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
 
         {post.gif?.allow_reuse && (
           <button
-            onClick={(event) => { stopActionEvent(event); nav(`/remix/${post.gif_id}`); }}
+            onClick={(event) => { stopActionEvent(event); if (post.gif_id) nav(`/remix/${post.gif_id}`, { state: { gif: post.gif } }); }}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl hover:bg-white/5 transition ml-auto"
           >
             <RefreshCw size={16} className="text-cyan-400" />
