@@ -455,6 +455,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       image: payload.image,
     }, 'createUserGif');
 
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[createUserGif] pre-insert', {
+        imageIsBlob: insertPayload.gif_url?.startsWith('blob:'),
+        gif_url_present: !!insertPayload.gif_url,
+        media_url_present: !!insertPayload.media_url,
+        remix_media_url_present: !!insertPayload.remix_media_url,
+        source_type: insertPayload.source_type,
+        media_type: insertPayload.media_type,
+      });
+    }
+
     let { data, error } = await supabase.from('fwd_gifs').insert(insertPayload).select().single();
 
     // If the insert failed because the migration hasn't been applied yet, retry
@@ -464,6 +475,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const fallback = await supabase.from('fwd_gifs').insert(basePayload).select().single();
       data = fallback.data;
       error = fallback.error;
+    }
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[createUserGif] post-insert', {
+        insertSucceeded: !error && !!data,
+        returnedId: data?.id,
+        gif_url_present: !!data?.gif_url,
+        media_url_present: !!data?.media_url,
+        remix_media_url_present: !!data?.remix_media_url,
+        errorCode: error?.code,
+        errorMessage: error?.message,
+      });
     }
 
     if (error || !data) return null;

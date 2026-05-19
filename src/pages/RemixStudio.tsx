@@ -508,24 +508,109 @@ const RemixStudio: React.FC = () => {
 
     setSaving(true);
     try {
-      const mediaUrl = replacement?.remoteUrl || originalGif.image;
-      const mediaType = replacement ? replacement.mimeType : (originalGif.media_type || 'image/gif');
+      // ── Resolve original GIF's permanent URL ──────────────────────────────
+      // If originalGif.image is a blob (from route state of a freshly-created GIF),
+      // we must NOT save it. For reaction/split/text modes that need the original
+      // as the main visual, fetch the real URL from the DB using the GIF's UUID.
+      let originalMediaUrl = originalGif.image || '';
+      let originalMp4 = originalGif.mp4_url || null;
+      let originalWebm = originalGif.webm_url || null;
 
-      // Hard guard: block save if resolved mediaUrl is a blob URL
-      if (isBlobUrl(mediaUrl)) {
-        toast({ title: 'Upload still in progress', description: 'Finish uploading media before saving.', variant: 'destructive' });
+      if (isBlobUrl(originalMediaUrl)) {
+        // Try to recover from DB if we have a UUID
+        if (isUuid(originalGif.id)) {
+          const { data: dbRow } = await supabase
+            .from('fwd_gifs')
+            .select('gif_url, media_url, mp4_url, webm_url, source_video_url, media_type, still_url')
+            .eq('id', originalGif.id)
+            .maybeSingle();
+          if (dbRow) {
+            const recovered = resolveFwdMedia(dbRow);
+            originalMediaUrl = recovered.animatedUrl || '';
+            originalMp4 = recovered.mp4Url;
+            originalWebm = recovered.webmUrl;
+          }
+        }
+        // If still blob after recovery attempt, block save for non-replace modes
+        if (isBlobUrl(originalMediaUrl) && effectiveMode !== 'replace') {
+          toast({ title: 'Original media unavailable', description: 'The source GIF cannot be saved as a remix. Try opening it from your library.', variant: 'destructive' });
+          setSaving(false);
+          return;
+        }
+      }
+
+      // ── Mode-aware main media URL selection ───────────────────────────────
+      // Replace: replacement is the main visual
+      // Reaction / Split / Text / AI-Blend: original is the main visual
+      let mediaUrl: string;
+      let mediaType: string;
+      let isAnimated: boolean;
+      let stillUrl: string | null;
+
+      if (effectiveMode === 'replace') {
+        // Replace mode REQUIRES a replacement
+        if (!replacement?.remoteUrl) {
+          toast({ title: 'Upload required', description: 'Upload a file to replace the original before saving.', variant: 'destructive' });
+          setSaving(false);
+          return;
+        }
+        mediaUrl = replacement.remoteUrl;
+        mediaType = replacement.mimeType;
+        isAnimated = isVideoMime(replacement.mimeType) || replacement.mimeType === 'image/gif';
+        stillUrl = null;
+      } else {
+        // Reaction / Split / Text / AI-Blend: original GIF is the main visual
+        // Use mp4 or webm if available (better for video-based originals)
+        mediaUrl = originalMp4 || originalWebm || originalMediaUrl;
+        mediaType = originalGif.media_type || 'image/gif';
+        isAnimated = originalGif.is_animated ?? true;
+        stillUrl = originalGif.still_url || null;
+      }
+
+      // ── Dev-only diagnostic logging ───────────────────────────────────────
+      if (import.meta.env.DEV) {
+        console.log('[RemixStudio] handleSave', {
+          remixMode,
+          effectiveMode,
+          postToFeed,
+          hasReplacement: !!replacement,
+          replacementLocalUrlIsBlob: isBlobUrl(replacement?.localUrl),
+          replacementRemoteUrlExists: !!replacement?.remoteUrl,
+          replacementRemoteUrlIsBlob: isBlobUrl(replacement?.remoteUrl),
+          resolvedMediaUrl: mediaUrl,
+          resolvedMediaUrlIsBlob: isBlobUrl(mediaUrl),
+          resolvedMediaType: mediaType,
+          originalGifImageIsBlob: isBlobUrl(originalGif.image),
+          uploadPending,
+        });
+      }
+
+      // ── Hard no-blob guard on every field before createUserGif ───────────
+      const allMediaFields: Record<string, string | null | undefined> = {
+        image: mediaUrl,
+        source_video_url: isVideoMime(mediaType) ? mediaUrl : (originalGif.source_video_url || undefined),
+        remix_media_url: replacement?.remoteUrl,
+        still_url: stillUrl,
+      };
+      for (const [field, value] of Object.entries(allMediaFields)) {
+        if (isBlobUrl(value)) {
+          toast({ title: 'Finish uploading media before saving your remix.', description: `Field ${field} still has a local preview URL.`, variant: 'destructive' });
+          setSaving(false);
+          return;
+        }
+      }
+
+      // ── Require at least one permanent media URL ──────────────────────────
+      if (!mediaUrl || !mediaUrl.startsWith('http')) {
+        toast({ title: 'No valid media', description: 'This remix needs a valid uploaded media file before saving.', variant: 'destructive' });
         setSaving(false);
         return;
       }
-      const isAnimated = replacement
-        ? (isVideoMime(replacement.mimeType) || replacement.mimeType === 'image/gif')
-        : (originalGif.is_animated ?? true);
-      const stillUrl = replacement ? null : (originalGif.still_url || null);
 
-      // Effective mode to store (ai-blend resolves to the applied recipe mode)
+      // ── Effective mode to store ───────────────────────────────────────────
       const savedMode = remixMode === 'ai-blend' && appliedRecipe ? appliedRecipe.mode : remixMode;
 
-      // Layout to store (placement/shape/scale for future renderers)
+      // ── Layout to store ───────────────────────────────────────────────────
       const layout = appliedRecipe
         ? {
           placement: appliedRecipe.placement,
@@ -537,6 +622,7 @@ const RemixStudio: React.FC = () => {
           ? { placement: 'bottom-right', overlayShape: 'rounded', scale: 0.35, captionPlacement: 'bottom' }
           : null;
 
+      // ── Create fwd_gifs row ───────────────────────────────────────────────
       const remixed = await createUserGif({
         title: `Remix: ${originalGif.title}`,
         image: mediaUrl,
@@ -567,7 +653,19 @@ const RemixStudio: React.FC = () => {
       });
 
       if (!remixed) throw new Error('Failed to create remix GIF record');
+      if (!remixed.image && !remixed.mp4_url && !remixed.webm_url) throw new Error('Remix saved but has no valid media URL — blocking post');
 
+      if (import.meta.env.DEV) {
+        console.log('[RemixStudio] remixed row created', {
+          id: remixed.id,
+          image: remixed.image,
+          mp4_url: remixed.mp4_url,
+          webm_url: remixed.webm_url,
+          remix_media_url: remixed.remix_media_url,
+        });
+      }
+
+      // ── Only create feed post after remix row is confirmed valid ─────────
       if (postToFeed) {
         const post = await createPost(remixed.id, caption);
         if (!post) throw new Error('Failed to post to feed');
@@ -583,6 +681,7 @@ const RemixStudio: React.FC = () => {
       setSaving(false);
     }
   };
+
 
   // ─────────────────────────────────────────────
   // Guard renders

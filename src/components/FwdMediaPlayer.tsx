@@ -134,6 +134,10 @@ export function FwdMediaPlayer({
   const resolvedMp4 = resolved.mp4Url || null;
   const resolvedWebm = resolved.webmUrl || null;
   const resolvedGif = resolved.gifUrl || null;
+  // Still image: PNG/JPEG/WebP stored as the main media URL (e.g. PNG remix replacements)
+  const resolvedStill = (!resolvedGif && !resolvedMp4 && !resolvedWebm && resolved.mediaType === 'image')
+    ? (resolved.animatedUrl || null)
+    : null;
   const resolvedPoster = posterUrl || resolved.thumbnailUrl || null;
   const fallbackVideo = resolved.shouldUseVideo && !resolvedMp4 && !resolvedWebm ? resolved.animatedUrl : null;
   // Safari-only: swap .gif → .mp4 for known GIF CDNs (giphy, tenor, gifs.com)
@@ -141,6 +145,7 @@ export function FwdMediaPlayer({
 
   const isVideoMode = !!(resolvedMp4 || resolvedWebm || safariSwap || fallbackVideo);
   const isGifImgMode = !isVideoMode && !!resolvedGif;
+  const isStillImgMode = !isVideoMode && !isGifImgMode && !!resolvedStill;
 
   // Key causes video remount when sources change; stable within a single render cycle
   const videoKey = [resolvedMp4 || safariSwap || fallbackVideo, resolvedWebm, cacheKey].filter(Boolean).join('|');
@@ -258,7 +263,7 @@ export function FwdMediaPlayer({
     setImgErrored(false);
   }, [mp4Url, webmUrl, gifUrl, sourceVideoUrl, mediaType, isAnimated]);
 
-  if (!resolved.animatedUrl && !resolvedMp4 && !resolvedWebm && !resolvedGif) return null;
+  if (!resolved.animatedUrl && !resolvedMp4 && !resolvedWebm && !resolvedGif && !resolvedStill) return null;
 
   const hasOverlay = playState === 'blocked' || playState === 'error' || playState === 'unsupported';
   const objFit = objectFit !== 'cover' ? objectFit : undefined;
@@ -377,6 +382,28 @@ export function FwdMediaPlayer({
           if (!imgErrored && resolvedPoster) setImgErrored(true);
           else onError?.();
         }}
+      />
+    );
+    return wrapWithCrop(imageNode);
+  }
+
+  // ── Still image mode (PNG/JPEG/WebP replacement media) ─────────────────────
+  if (isStillImgMode) {
+    const imageNode = (
+      <img
+        src={resolvedStill!}
+        alt={title}
+        draggable={false}
+        loading={lazy ? 'lazy' : 'eager'}
+        decoding="async"
+        className={cropActive ? 'w-full h-full object-cover' : className}
+        style={cropActive ? { objectFit: 'cover' } : objFit ? { objectFit: objFit, ...style } : style}
+        onLoad={(e) => {
+          const img = e.currentTarget;
+          if (img.naturalWidth <= 1 || img.naturalHeight <= 1) { onError?.(); return; }
+          onLoad?.();
+        }}
+        onError={() => onError?.()}
       />
     );
     return wrapWithCrop(imageNode);
