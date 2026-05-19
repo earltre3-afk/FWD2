@@ -63,23 +63,30 @@ export function FwdAnimatedGif({
 }: FwdAnimatedGifProps) {
   // Route the URL to the correct prop. Extension regex catches https URLs with
   // .mp4/.webm; mediaType catches blob: URLs (no extension) and CDN URLs that
-  // do not advertise an extension. Without the mediaType branch, a recorded
-  // video preview (blob: URL + media_type=video/webm) is passed as gifUrl,
-  // resolveFwdMedia silently drops the blob URL, and the player renders nothing
-  // — which is what produced the black-screen-after-recording bug.
+  // do not advertise an extension. Use startsWith for the MIME check —
+  // MediaRecorder hands back values like `video/webm;codecs=vp8`, so an
+  // exact-equality compare to 'video/webm' was rejecting recorded blobs and
+  // they fell through to FwdMediaPlayer, where resolveFwdMedia drops the blob
+  // URL → empty render → black preview after Stop Recording.
   const isMp4ByExt = MP4_EXT_RE.test(gifUrl);
   const isWebmByExt = WEBM_EXT_RE.test(gifUrl);
   const mt = (mediaType || '').toLowerCase();
-  const isMp4ByMime = mt === 'video/mp4' || mt === 'video/quicktime' || mt === 'video/x-m4v';
-  const isWebmByMime = mt === 'video/webm' || mt === 'video/ogg';
+  const isVideoByMime = mt.startsWith('video/');
+  const isMp4ByMime = mt.startsWith('video/mp4') || mt.startsWith('video/quicktime') || mt.startsWith('video/x-m4v');
+  const isWebmByMime = mt.startsWith('video/webm') || mt.startsWith('video/ogg');
   const isMp4 = isMp4ByExt || isMp4ByMime;
   const isWebm = isWebmByExt || isWebmByMime;
 
   // Blob URLs always need to be rendered through a <video> source when the
   // media is video — FwdMediaPlayer's resolveFwdMedia drops blob URLs.
-  // For blob video previews, render a native <video> directly.
+  // For blob video previews, render a native <video> directly. We trust
+  // isVideoByMime here so non-vp8/vp9 codec variants still hit this branch.
   const isBlob = typeof gifUrl === 'string' && gifUrl.startsWith('blob:');
-  if (isBlob && (isMp4 || isWebm)) {
+  if (isBlob && (isVideoByMime || isMp4 || isWebm)) {
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.log('[FwdAnimatedGif] blob video preview', { mediaType: mt, isMp4, isWebm });
+    }
     return (
       <video
         src={gifUrl}
@@ -98,6 +105,10 @@ export function FwdAnimatedGif({
   }
   // Blob URLs that are images (uploaded image preview before transcode)
   if (isBlob) {
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.log('[FwdAnimatedGif] blob image preview', { mediaType: mt });
+    }
     return (
       <img
         src={gifUrl}
