@@ -46,6 +46,12 @@ export interface Gif {
   remix_style?: string | null;
   remix_mood?: string | null;
   is_remix?: boolean;
+  remix_mode?: string | null;
+  remix_media_url?: string | null;
+  remix_media_type?: string | null;
+  remix_layout?: Record<string, unknown> | null;
+  remix_ai_recipe?: Record<string, unknown> | null;
+  remix_tags?: string[] | null;
   original_profile?: { display_name: string | null; username: string | null } | null;
 }
 
@@ -141,6 +147,12 @@ export interface CreateGifPayload {
   remix_style?: string | null;
   remix_mood?: string | null;
   is_remix?: boolean;
+  remix_mode?: string | null;
+  remix_media_url?: string | null;
+  remix_media_type?: string | null;
+  remix_layout?: Record<string, unknown> | null;
+  remix_ai_recipe?: Record<string, unknown> | null;
+  remix_tags?: string[] | null;
 }
 
 const defaultGuestCollections: Collection[] = [
@@ -216,6 +228,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       remix_style: g.remix_style ?? null,
       remix_mood: g.remix_mood ?? null,
       is_remix: g.is_remix ?? false,
+      remix_mode: g.remix_mode ?? null,
+      remix_media_url: g.remix_media_url ?? null,
+      remix_media_type: g.remix_media_type ?? null,
+      remix_layout: g.remix_layout ?? null,
+      remix_ai_recipe: g.remix_ai_recipe ?? null,
+      remix_tags: g.remix_tags ?? null,
       original_profile: Array.isArray(g.original_profile) ? g.original_profile[0] : g.original_profile,
     };
   };
@@ -416,6 +434,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       remix_style: payload.remix_style ?? null,
       remix_mood: payload.remix_mood ?? null,
       is_remix: payload.is_remix ?? false,
+      remix_mode: payload.remix_mode ?? null,
+      remix_media_url: payload.remix_media_url ?? null,
+      remix_media_type: payload.remix_media_type ?? null,
+      remix_layout: payload.remix_layout ?? null,
+      remix_ai_recipe: payload.remix_ai_recipe ?? null,
+      remix_tags: payload.remix_tags ?? null,
     };
 
     const { data, error } = await supabase.from('fwd_gifs').insert(insertPayload).select().single();
