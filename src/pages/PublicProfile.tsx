@@ -47,10 +47,10 @@ const PublicProfile: React.FC = () => {
       }
       const [{ data: g }, followersRes, followingRes, savedRes] = await Promise.all([
         supabase
-        .from('user_gifs')
-        .select('*')
+        .from('fwd_feed_posts')
+        .select('*, gif:gif_id ( id, gif_url, media_url, still_url, thumbnail_url, mp4_url, webm_url, source_video_url, media_type, is_animated, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata, tags, category, mood, owner_user_id, title )')
         .eq('user_id', (p as any).id)
-        .eq('is_public', true)
+        .eq('visibility', 'public')
         .order('created_at', { ascending: false }),
         supabase.from('follows').select('id', { count: 'exact', head: true }).eq('following_id', (p as any).id),
         supabase.from('follows').select('id', { count: 'exact', head: true }).eq('follower_id', (p as any).id),
@@ -62,7 +62,10 @@ const PublicProfile: React.FC = () => {
         following: followingRes.count || 0,
         saved: savedRes.count || 0,
       });
-      setGifs((g || []).map((row: any) => {
+      setGifs((g || [])
+        .map((row: any) => row.gif)
+        .filter(Boolean)
+        .map((row: any) => {
         const media = resolveFwdMedia(row);
         return {
           id: row.id,
@@ -88,7 +91,7 @@ const PublicProfile: React.FC = () => {
           tags: row.tags || [],
           category: row.category || 'Reactions',
           mood: row.mood,
-          user_id: row.user_id,
+          user_id: row.owner_user_id,
         };
       }));
       setLoading(false);
@@ -123,7 +126,7 @@ const PublicProfile: React.FC = () => {
           </div>
         ) : profile && (
           <>
-            <div className="glass-strong rounded-3xl p-4 border border-fuchsia-500/30 mt-4">
+            <div className="glass-strong rounded-3xl p-4 border border-fuchsia-500/30 mt-4 animate-fade-up">
               <div className="flex items-start gap-4">
                 <div className="w-24 h-24 rounded-full p-[3px] bg-gradient-to-br from-fuchsia-500 via-pink-500 to-cyan-400 neon-glow-purple">
                   {profile.avatar_url ? (
@@ -164,7 +167,7 @@ const PublicProfile: React.FC = () => {
                   <p className="text-zinc-400">No public FWDs yet.</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-3 gap-3 stagger-children">
                   {gifs.map(g => <GifCard key={g.id} gif={g} showHeart={false} />)}
                 </div>
               )}

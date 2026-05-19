@@ -15,9 +15,47 @@ export async function downloadFwdMedia({ url, filename, mimeType }: DownloadFwdM
   document.body.appendChild(anchor);
 
   try {
+    const isNative = typeof window !== 'undefined' && (window as any).Capacitor?.isNativePlatform?.();
     const response = await fetch(url, { mode: 'cors', credentials: 'omit' });
     if (!response.ok) throw new Error('fetch failed');
     const blob = await response.blob();
+
+    if (isNative) {
+      try {
+        const { Filesystem, Directory } = await import('@capacitor/filesystem');
+        const { Share } = await import('@capacitor/share');
+        
+        // Convert blob to base64
+        const base64Data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const b64 = reader.result as string;
+            // remove data URL prefix
+            resolve(b64.split(',')[1]);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+
+        const savedFile = await Filesystem.writeFile({
+          path: filename,
+          data: base64Data,
+          directory: Directory.Cache
+        });
+
+        await Share.share({
+          url: savedFile.uri,
+          title: filename,
+          dialogTitle: 'Save or Share File'
+        });
+        
+        return 'downloaded';
+      } catch (err) {
+        console.error('Native download failed:', err);
+        // Fallback to regular web approach if native fails
+      }
+    }
+
     const objectUrl = URL.createObjectURL(mimeType ? new Blob([blob], { type: mimeType }) : blob);
     anchor.href = objectUrl;
     anchor.download = filename;

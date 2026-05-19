@@ -57,7 +57,20 @@ export async function shareFwdItem({
     url,
   };
 
-  if (typeof navigator !== 'undefined' && navigator.share) {
+  if (typeof window !== 'undefined' && (window as any).Capacitor?.isNativePlatform?.()) {
+    try {
+      const { Share } = await import('@capacitor/share');
+      await Share.share({
+        title: payload.title,
+        text: payload.text,
+        url: payload.url,
+        dialogTitle: 'Share FWD',
+      });
+      return 'native-opened';
+    } catch (error) {
+      if (isShareCancellation(error)) return 'cancelled';
+    }
+  } else if (typeof navigator !== 'undefined' && navigator.share) {
     try {
       await navigator.share(payload);
       return 'native-opened';

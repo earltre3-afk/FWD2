@@ -84,12 +84,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { error: friendlyAuthError(error?.message) };
   };
 
+  const getRedirectUrl = (path: string) => {
+    // In a real native Android Capacitor environment, we prefer to use the custom scheme
+    // or the registered app link so it bounces right back into the app.
+    const isNative = typeof window !== 'undefined' && (window as any).Capacitor?.isNativePlatform?.();
+    if (isNative) {
+      return `com.treytv.fwd://${path.replace(/^\//, '')}`;
+    }
+    return `${window.location.origin}${path}`;
+  };
+
   const signUpWithEmail = async (email: string, password: string, displayName: string) => {
     const username = normalizeUsername(displayName || email.split('@')[0]) || `fwd_${crypto.randomUUID().slice(0, 8)}`;
     const { error } = await supabase.auth.signUp({
       email, password,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: getRedirectUrl('/auth/callback'),
         data: { display_name: displayName, full_name: displayName, username },
       },
     });
@@ -107,7 +117,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const { error } = await supabase.auth.signInWithOAuth({
       provider: provider as Parameters<typeof supabase.auth.signInWithOAuth>[0]['provider'],
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: getRedirectUrl('/auth/callback'),
         ...(isTreyTv ? { scopes: 'openid email profile' } : {}),
       },
     });
@@ -116,7 +126,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const requestPasswordReset = async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
+      redirectTo: getRedirectUrl('/reset-password'),
     });
     return { error: friendlyAuthError(error?.message) };
   };

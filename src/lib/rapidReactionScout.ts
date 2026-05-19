@@ -82,6 +82,8 @@ export function reactionAssetToGif(asset: ReactionAsset): Gif {
     title: asset.title,
     image: asset.gifUrl || asset.previewUrl,
     still_url: asset.previewUrl && asset.previewUrl !== asset.gifUrl ? asset.previewUrl : undefined,
+    mp4_url: asset.mp4Url,
+    webm_url: asset.webmUrl,
     tags: asset.tags || [],
     category: asset.source === 'fwd' ? 'Reactions' : 'Scout',
     mood: asset.source === 'fwd' ? undefined : 'Rapid Scout',

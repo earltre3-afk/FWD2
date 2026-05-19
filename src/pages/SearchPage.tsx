@@ -14,8 +14,8 @@ import { useRapidReactionScout } from '@/hooks/useRapidReactionScout';
 import type { ReactionAsset } from '@/types/reactions';
 import { supabase } from '@/lib/supabase';
 import FollowButton from '@/components/FollowButton';
-import AiGifScout from '@/components/gif/AiGifScout';
 import type { GifScoutResult } from '@/lib/gif-providers/types';
+import type { Gif } from '@/contexts/AppContext';
 
 interface UserResult {
   id: string;
@@ -23,6 +23,31 @@ interface UserResult {
   display_name: string | null;
   avatar_url: string | null;
   bio: string | null;
+}
+
+type GridItem = {
+  key: string;
+  gif: Gif;
+  isScoutPick: boolean;
+  source: string;
+  onClick: () => void;
+};
+
+function scoutPickToGif(pick: GifScoutResult): Gif {
+  return {
+    id: `${pick.provider}:${pick.providerGifId}`,
+    title: pick.title,
+    image: pick.gifUrl || pick.mediaUrl,
+    still_url: pick.posterUrl || pick.previewUrl,
+    mp4_url: pick.mp4Url,
+    webm_url: pick.webmUrl,
+    media_type: pick.mp4Url ? 'video/mp4' : undefined,
+    is_animated: true,
+    tags: [],
+    category: 'Scout',
+    provider: pick.provider,
+    provider_gif_id: pick.providerGifId,
+  };
 }
 
 const FILTERS = ['All', 'Reactions', 'Memes', 'TV & Movies', 'People', 'Music'];
@@ -38,6 +63,8 @@ const SearchPage: React.FC = () => {
   const [userSearching, setUserSearching] = useState(false);
   const { results: scoutResults, loadMore, loadingMore, hasMore, attribution, sourcesUsed } = useRapidReactionScout(query, 20);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const [scoutPicks, setScoutPicks] = useState<GifScoutResult[]>([]);
+  const scoutRequestIdRef = useRef(0);
 
   useEffect(() => {
     const q = params.get('q') || '';
@@ -50,6 +77,27 @@ const SearchPage: React.FC = () => {
     const f = filter.toLowerCase();
     return asset.tags.some((tag) => tag.toLowerCase().includes(f)) || asset.source !== 'fwd';
   });
+
+  // Build unified grid: scout picks first, then regular results (deduped)
+  const scoutIds = new Set(scoutPicks.map((p) => `${p.provider}:${p.providerGifId}`));
+  const gridItems: GridItem[] = [
+    ...scoutPicks.map((pick): GridItem => ({
+      key: `scout:${pick.provider}:${pick.providerGifId}`,
+      gif: scoutPickToGif(pick),
+      isScoutPick: true,
+      source: pick.provider,
+      onClick: () => saveScoutedGif(pick),
+    })),
+    ...results
+      .filter((asset) => !scoutIds.has(`${asset.source}:${asset.sourceId || ''}`))
+      .map((asset): GridItem => ({
+        key: asset.id,
+        gif: reactionAssetToGif(asset),
+        isScoutPick: false,
+        source: asset.source,
+        onClick: () => selectReaction(asset),
+      })),
+  ];
 
   // IntersectionObserver — fires loadMore when sentinel scrolls into view
   useEffect(() => {
@@ -83,6 +131,38 @@ const SearchPage: React.FC = () => {
       return () => window.clearTimeout(timer);
     }
   }, [hasMore, loadMore, loadingMore, results.length]);
+
+  // Fetch AI Scout Picks to merge into Search Results grid
+  useEffect(() => {
+    const requestId = ++scoutRequestIdRef.current;
+    const trimmed = query.trim();
+    if (trimmed.length < 2) {
+      setScoutPicks([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      fetch('/api/ai/gif-scout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ query: trimmed, context: 'search page', limit: 6 }),
+        signal: controller.signal,
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (scoutRequestIdRef.current !== requestId) return;
+          if (data) {
+            const picks = [...(data.rareResults || []), ...(data.regularResults || [])].slice(0, 6);
+            setScoutPicks(picks);
+          }
+        })
+        .catch(() => {});
+    }, 400);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [query]);
 
   useEffect(() => {
     const q = query.trim();
@@ -289,8 +369,6 @@ const SearchPage: React.FC = () => {
           ))}
         </div>
 
-        <AiGifScout query={query} context="search page" limit={8} onSelect={saveScoutedGif} />
-
         {query.trim().length >= 2 && (
           <div className="mb-5">
             <div className="flex items-center justify-between mb-2">
@@ -324,21 +402,24 @@ const SearchPage: React.FC = () => {
           </div>
         )}
 
-        {results.length > 0 ? (
+        {gridItems.length > 0 ? (
           <>
             <div className="flex items-center justify-between mb-3">
-              <div>
-                <h3 className="text-base font-black text-white tracking-wider">SEARCH RESULTS</h3>
-              </div>
-              <span className="text-sm text-fuchsia-400 font-semibold">{results.length} Results</span>
+              <h3 className="text-base font-black text-white tracking-wider">SEARCH RESULTS</h3>
+              <span className="text-sm text-fuchsia-400 font-semibold">{gridItems.length} Results</span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 lg:gap-4">
-              {results.map(asset => (
-                <div key={asset.id} className="relative min-w-0">
-                  <GifCard gif={reactionAssetToGif(asset)} onClick={() => selectReaction(asset)} showShare />
-                  {(asset.source === 'giphy' || asset.source === 'tenor') && (
-                    <span className="absolute left-2 top-2 z-10 rounded bg-black/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-cyan-100 border border-cyan-300/20">
-                      {asset.source}
+              {gridItems.map((item) => (
+                <div key={item.key} className="relative min-w-0">
+                  <GifCard gif={item.gif} onClick={item.onClick} showShare />
+                  {item.isScoutPick && (
+                    <span className="absolute left-2 top-2 z-10 rounded bg-cyan-400/90 px-1.5 py-0.5 text-[8px] font-black uppercase text-black pointer-events-none">
+                      Scout
+                    </span>
+                  )}
+                  {!item.isScoutPick && (item.source === 'giphy' || item.source === 'tenor') && (
+                    <span className="absolute left-2 top-2 z-10 rounded bg-black/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-cyan-100 border border-cyan-300/20 pointer-events-none">
+                      {item.source}
                     </span>
                   )}
                 </div>

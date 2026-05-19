@@ -22,7 +22,7 @@ const Home: React.FC = () => {
   }, [cat]);
 
   return (
-    <div className="min-h-screen pb-32">
+    <div className="min-h-screen pb-32 page-content">
       <div className="max-w-md md:max-w-2xl lg:max-w-4xl xl:max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
@@ -33,7 +33,7 @@ const Home: React.FC = () => {
 
         {/* Search */}
         <form onSubmit={(e) => { e.preventDefault(); if (query) nav('/search?q=' + encodeURIComponent(query)); }}
-          className="glass-strong rounded-full px-5 py-3 border border-fuchsia-500/40 flex items-center gap-3 neon-glow-purple/30 mb-5">
+          className="glass-strong rounded-full px-5 py-3 border border-fuchsia-500/40 flex items-center gap-3 neon-glow-purple/30 mb-5 animate-fade-up hover-lift">
           <SearchIcon size={18} className="text-zinc-400" />
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search GIFs, reactions, memes…"
             className="flex-1 bg-transparent outline-none text-white placeholder-zinc-500 text-sm" />
@@ -60,13 +60,13 @@ const Home: React.FC = () => {
 
         {/* Trending grid */}
         <div className="flex items-center justify-between mt-5 mb-3">
-          <h2 className="text-lg font-black text-white tracking-wider">
+          <h2 className="text-lg font-black text-white tracking-wider animate-text-glow">
             {cat === 'Trending' ? 'TRENDING NOW' : cat.toUpperCase()}
           </h2>
           <button onClick={() => nav('/search')} className="text-sm text-fuchsia-400 font-semibold">See All ›</button>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 lg:gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 lg:gap-4 stagger-children">
           {filtered[0] && (
             <div className="row-span-2">
               <GifCard gif={filtered[0]} tall />
@@ -79,11 +79,11 @@ const Home: React.FC = () => {
         </div>
 
         {/* Moods */}
-        <h2 className="text-lg md:text-xl font-black text-white tracking-wider mt-7 mb-3">HOW ARE YOU FEELING?</h2>
-        <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-8 gap-3">
+        <h2 className="text-lg md:text-xl font-black text-white tracking-wider mt-7 mb-3 animate-text-glow">HOW ARE YOU FEELING?</h2>
+        <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-8 gap-3 stagger-children">
           {MOODS.map(m => (
             <button key={m.name} onClick={() => nav('/search?q=' + encodeURIComponent(m.name.toLowerCase()))}
-              className="glass rounded-2xl p-3 flex flex-col items-center gap-1 border border-white/10 hover:border-fuchsia-500/50 hover:scale-105 transition">
+              className="glass rounded-2xl p-3 flex flex-col items-center gap-1 border border-white/10 hover:border-fuchsia-500/50 transition hover-lift ripple-press">
               <span className="text-2xl">{m.emoji}</span>
               <span className="text-[11px] font-semibold text-zinc-300">{m.name}</span>
             </button>
@@ -91,22 +91,22 @@ const Home: React.FC = () => {
         </div>
 
         {/* Quick actions */}
-        <div className="grid grid-cols-3 gap-3 sm:gap-4 lg:gap-5 mt-6">
-          <button onClick={() => nav('/create')} className="glass-strong rounded-2xl p-4 flex flex-col items-center gap-2 border border-fuchsia-500/30 hover:border-fuchsia-500 transition">
+        <div className="grid grid-cols-3 gap-3 sm:gap-4 lg:gap-5 mt-6 stagger-children">
+          <button onClick={() => nav('/create')} className="glass-strong rounded-2xl p-4 flex flex-col items-center gap-2 border border-fuchsia-500/30 hover:border-fuchsia-500 transition hover-lift ripple-press">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-fuchsia-600/20 to-purple-600/20 border border-fuchsia-500/40 flex items-center justify-center">
               <Upload size={22} className="text-fuchsia-400" />
             </div>
             <span className="text-sm font-bold text-white">UPLOAD</span>
             <span className="text-[10px] text-zinc-500">From your gallery</span>
           </button>
-          <button onClick={() => nav('/camera')} className="glass-strong rounded-2xl p-4 flex flex-col items-center gap-2 border border-cyan-500/30 hover:border-cyan-500 transition">
+          <button onClick={() => nav('/camera')} className="glass-strong rounded-2xl p-4 flex flex-col items-center gap-2 border border-cyan-500/30 hover:border-cyan-500 transition hover-lift ripple-press">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500/20 to-blue-600/20 border border-cyan-500/40 flex items-center justify-center">
               <Camera size={22} className="text-cyan-400" />
             </div>
             <span className="text-sm font-bold text-white">CAMERA</span>
             <span className="text-[10px] text-zinc-500">Capture the moment</span>
           </button>
-          <button onClick={() => nav('/create')} className="glass-strong rounded-2xl p-4 flex flex-col items-center gap-2 border border-pink-500/30 hover:border-pink-500 transition">
+          <button onClick={() => nav('/create')} className="glass-strong rounded-2xl p-4 flex flex-col items-center gap-2 border border-pink-500/30 hover:border-pink-500 transition hover-lift ripple-press">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-pink-500/20 to-fuchsia-600/20 border border-pink-500/40 flex items-center justify-center">
               <Zap size={22} className="text-pink-400" />
             </div>

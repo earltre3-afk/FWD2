@@ -13,6 +13,7 @@ import Home from "./pages/Home";
 import SearchPage from "./pages/SearchPage";
 import GifDetail from "./pages/GifDetail";
 import CreateGif from "./pages/CreateGif";
+import RemixStudio from "./pages/RemixStudio";
 import CameraCapture from "./pages/CameraCapture";
 import Favorites from "./pages/Favorites";
 import Profile from "./pages/Profile";
@@ -31,6 +32,47 @@ import PickerKeyManager from "./pages/PickerKeyManager";
 import Feed from "./pages/Feed";
 import PasswordReset from "./pages/PasswordReset";
 import FwdShare from "./pages/FwdShare";
+import { App as CapacitorApp } from '@capacitor/app';
+import { useNavigate } from 'react-router-dom';
+import { useEffect } from 'react';
+
+const AppUrlListener = () => {
+  const navigate = useNavigate();
+  useEffect(() => {
+    const isNative = typeof window !== 'undefined' && (window as any).Capacitor?.isNativePlatform?.();
+    if (!isNative) return;
+
+    const listener = CapacitorApp.addListener('appUrlOpen', (event) => {
+      const url = event.url;
+      let path = '/';
+      
+      if (url.startsWith('https://fwd.treytv.com')) {
+        const urlObj = new URL(url);
+        path = urlObj.pathname + urlObj.search + urlObj.hash;
+      } else if (url.startsWith('com.treytv.fwd://')) {
+        // Safe extraction preserving query params and hash
+        // com.treytv.fwd://auth/callback?code=123 -> auth/callback?code=123
+        const stripped = url.replace('com.treytv.fwd://', '');
+        path = stripped.startsWith('/') ? stripped : '/' + stripped;
+      } else {
+        try {
+          const urlObj = new URL(url);
+          path = urlObj.pathname + urlObj.search + urlObj.hash;
+        } catch {
+          path = url.split('://')[1] ? '/' + url.split('://')[1] : '/';
+        }
+      }
+      
+      navigate(path);
+    });
+
+    return () => {
+      listener.then(l => l.remove());
+    };
+  }, [navigate]);
+
+  return null;
+};
 
 const queryClient = new QueryClient();
 
@@ -39,6 +81,7 @@ const App = () => (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <BrowserRouter>
+          <AppUrlListener />
           <AuthProvider>
             <AppProvider>
               <Toaster />
@@ -57,6 +100,7 @@ const App = () => (
                 <Route path="/search" element={<SearchPage />} />
                 <Route path="/gif/:id" element={<GifDetail />} />
                 <Route path="/create" element={<ProtectedRoute><CreateGif /></ProtectedRoute>} />
+                <Route path="/remix/:id" element={<RemixStudio />} />
                 <Route path="/camera" element={<ProtectedRoute><CameraCapture /></ProtectedRoute>} />
                 <Route path="/favorites" element={<ProtectedRoute><Favorites /></ProtectedRoute>} />
                 <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
@@ -68,7 +112,7 @@ const App = () => (
                 <Route path="/settings/picker-keys" element={<ProtectedRoute><PickerKeys /></ProtectedRoute>} />
                 <Route path="/picker-api-keys" element={<ProtectedRoute><PickerKeys /></ProtectedRoute>} />
                 <Route path="/integration-status" element={<IntegrationStatus />} />
-                <Route path="/feed" element={<ProtectedRoute><Feed /></ProtectedRoute>} />
+                <Route path="/feed" element={<Feed />} />
                 <Route path="/f/:id" element={<FwdShare />} />
                 <Route path="/settings/integrations" element={<ProtectedRoute><PickerKeyManager /></ProtectedRoute>} />
                 <Route path="*" element={<NotFound />} />

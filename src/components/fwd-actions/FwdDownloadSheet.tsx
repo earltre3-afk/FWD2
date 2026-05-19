@@ -18,12 +18,15 @@ const FwdDownloadSheet: React.FC<FwdDownloadSheetProps> = ({ open, onOpenChange,
   const options = useMemo(() => {
     if (!gif) return [];
     const items: Array<{ key: string; label: string; url: string; filename: string; mimeType: string }> = [];
+    const isNative = typeof window !== 'undefined' && (window as any).Capacitor?.isNativePlatform?.();
+    const actionLabel = isNative ? 'Save / Share' : 'Download';
+
     if (gif.image && (gif.media_type === 'image/gif' || /\.gif($|\?)/i.test(gif.image))) {
-      items.push({ key: 'gif', label: 'Download GIF', url: gif.image, filename: cleanFwdFilename(gif.title, 'gif'), mimeType: 'image/gif' });
+      items.push({ key: 'gif', label: `${actionLabel} GIF`, url: gif.image, filename: cleanFwdFilename(gif.title, 'gif'), mimeType: 'image/gif' });
     }
     const mp4Url = gif.mp4_url || (/\.mp4($|\?)/i.test(gif.source_video_url || '') ? gif.source_video_url : undefined);
     if (mp4Url) {
-      items.push({ key: 'mp4', label: 'Download MP4', url: mp4Url, filename: cleanFwdFilename(gif.title, 'mp4'), mimeType: 'video/mp4' });
+      items.push({ key: 'mp4', label: `${actionLabel} MP4`, url: mp4Url, filename: cleanFwdFilename(gif.title, 'mp4'), mimeType: 'video/mp4' });
     }
     return items;
   }, [gif]);

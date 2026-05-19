@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Home, Search, Newspaper, User, Camera, Upload, Scissors, Crop, Type, Smile, Gauge, Aperture, X } from 'lucide-react';
 import { FwdMark } from './FwdLogo';
@@ -12,17 +12,26 @@ const TOOLS = [
   { id: 'filters',  icon: Aperture, label: 'Filters' },
 ];
 
+const WHEEL_ACTIONS = [
+  { icon: Camera,   label: 'Camera',  path: '/camera',          x: -128, y: -30 },
+  { icon: Upload,   label: 'Upload',  path: '/create',          x: -86,  y: -96 },
+  { icon: Scissors, label: 'Trim',    path: '/create?tool=trim', x: -28,  y: -142 },
+  { icon: Crop,     label: 'Crop',    path: '/create?tool=crop', x: 28,   y: -142 },
+  { icon: Type,     label: 'Text',    path: '/create?tool=text', x: 86,   y: -96 },
+  { icon: Smile,    label: 'Sticker', path: '/create?tool=stickers', x: 128, y: -30 },
+];
+
 const CreationSheet: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const nav = useNavigate();
 
   const go = (path: string) => { onClose(); nav(path); };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end">
+    <div className="fixed inset-0 z-50 flex flex-col justify-end animate-backdrop-in">
       {/* backdrop */}
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="relative w-full max-w-md md:max-w-lg mx-auto rounded-t-3xl overflow-hidden"
+      <div className="relative w-full max-w-md md:max-w-lg mx-auto rounded-t-3xl overflow-hidden animate-sheet-up"
         style={{ maxHeight: '88vh' }}>
 
         {/* ── Camera section ── */}
@@ -80,7 +89,7 @@ const CreationSheet: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 <button
                   key={id}
                   onClick={() => go(`/create?tool=${id}`)}
-                  className="flex flex-col items-center gap-2 py-3 rounded-2xl glass border border-white/8 hover:border-fuchsia-500/40 transition"
+                  className="flex flex-col items-center gap-2 py-3 rounded-2xl glass border border-white/8 hover:border-fuchsia-500/40 transition hover-lift ripple-press"
                 >
                   <Icon size={20} className="text-fuchsia-300" />
                   <span className="text-xs text-zinc-300 font-semibold">{label}</span>
@@ -109,10 +118,48 @@ const BottomNav: React.FC = () => {
   const nav = useNavigate();
   const loc = useLocation();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [wheelOpen, setWheelOpen] = useState(false);
+  const longPressTimer = useRef<number | null>(null);
+  const longPressTriggered = useRef(false);
   const isActive = (p: string) => loc.pathname === p || loc.pathname.startsWith(p + '/');
 
+  const clearLongPressTimer = () => {
+    if (longPressTimer.current) {
+      window.clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const startPlusPress = () => {
+    clearLongPressTimer();
+    longPressTriggered.current = false;
+    longPressTimer.current = window.setTimeout(() => {
+      longPressTriggered.current = true;
+      setSheetOpen(false);
+      setWheelOpen(true);
+    }, 420);
+  };
+
+  const finishPlusPress = () => {
+    clearLongPressTimer();
+    if (longPressTriggered.current) {
+      longPressTriggered.current = false;
+      return;
+    }
+    if (wheelOpen) {
+      setWheelOpen(false);
+      return;
+    }
+    setSheetOpen(true);
+  };
+
+  const goFromWheel = (path: string) => {
+    setWheelOpen(false);
+    nav(path);
+  };
+
   const Item = ({ icon: Icon, label, path }: { icon: any; label: string; path: string }) => (
-    <button onClick={() => nav(path)} className="flex flex-col items-center gap-1 flex-1 py-1 group">
+    <button onClick={() => nav(path)} className="flex flex-col items-center gap-1 flex-1 py-1 group relative ripple-press">
       <Icon size={22} className={`sm:w-6 sm:h-6 transition-colors ${isActive(path) ? 'text-fuchsia-400' : 'text-zinc-400 group-hover:text-zinc-200'}`}
         style={isActive(path) ? { filter: 'drop-shadow(0 0 8px rgba(217,70,239,0.8))' } : {}} />
       <span className={`text-[11px] sm:text-xs ${isActive(path) ? 'text-fuchsia-400 font-semibold' : 'text-zinc-400'}`}>{label}</span>
@@ -122,13 +169,45 @@ const BottomNav: React.FC = () => {
   return (
     <>
       {sheetOpen && <CreationSheet onClose={() => setSheetOpen(false)} />}
+      {wheelOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <button
+            aria-label="Close creation wheel"
+            className="absolute inset-0 bg-black/45 backdrop-blur-[2px]"
+            onClick={() => setWheelOpen(false)}
+          />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 mx-auto h-80 max-w-md">
+            {WHEEL_ACTIONS.map(({ icon: Icon, label, path, x, y }) => (
+              <button
+                key={label}
+                onClick={() => goFromWheel(path)}
+                className="pointer-events-auto absolute left-1/2 bottom-[72px] flex h-[74px] w-[74px] flex-col items-center justify-center gap-1 rounded-2xl border border-fuchsia-400/35 bg-zinc-950/90 text-white shadow-2xl shadow-fuchsia-950/50 backdrop-blur-md transition active:scale-95"
+                style={{ transform: `translate(calc(-50% + ${x}px), ${y}px)` }}
+              >
+                <Icon size={19} className="text-fuchsia-300" />
+                <span className="max-w-full px-1 text-center text-[10px] font-bold leading-tight text-zinc-100">{label}</span>
+              </button>
+            ))}
+            <div className="pointer-events-none absolute left-1/2 bottom-[20px] flex h-16 w-16 -translate-x-1/2 items-center justify-center rounded-full border border-fuchsia-500/70 bg-black/80 shadow-xl shadow-fuchsia-500/30">
+              <FwdMark size={28} />
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="fixed bottom-0 left-0 right-0 z-40 pb-[env(safe-area-inset-bottom)]">
         <div className="mx-auto max-w-md md:max-w-lg lg:max-w-xl px-3 pb-3">
           <div className="glass-strong rounded-3xl px-2 sm:px-4 py-2 sm:py-3 flex items-center justify-around relative">
             <Item icon={Home} label="Home" path="/home" />
             <Item icon={Search} label="Search" path="/search" />
-            <button onClick={() => setSheetOpen(true)} className="flex-1 flex justify-center translate-x-1">
+            <button
+              onPointerDown={startPlusPress}
+              onPointerUp={finishPlusPress}
+              onPointerCancel={clearLongPressTimer}
+              onPointerLeave={clearLongPressTimer}
+              className="flex-1 flex justify-center translate-x-1 touch-none"
+              aria-label="Create"
+            >
               <span className="relative -mt-8 sm:-mt-10 inline-flex">
                 <div className="w-16 h-16 sm:w-18 sm:h-18 md:w-20 md:h-20 rounded-full glass-strong flex items-center justify-center animate-pulse-glow border border-fuchsia-500/60">
                   <FwdMark size={28} className="sm:w-8 sm:h-8" />

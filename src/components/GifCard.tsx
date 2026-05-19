@@ -60,7 +60,7 @@ const GifCard: React.FC<Props> = ({
   return (
     <div
       onClick={handleClick}
-      className={`relative group cursor-pointer rounded-xl sm:rounded-2xl overflow-hidden glass-strong border border-fuchsia-500/20 hover:border-fuchsia-500/60 transition-all hover:scale-[1.02] hover:shadow-[0_0_30px_rgba(176,38,255,0.4)] ${tall ? 'aspect-[3/4]' : 'aspect-square'} ${className}`}
+      className={`relative group cursor-pointer rounded-xl sm:rounded-2xl overflow-hidden glass-strong border border-fuchsia-500/20 hover:border-fuchsia-500/60 transition-all hover-lift ${tall ? 'aspect-[3/4]' : 'aspect-square'} ${className}`}
     >
       <FwdMediaPlayer
         mp4Url={gif.mp4_url}
@@ -83,10 +83,38 @@ const GifCard: React.FC<Props> = ({
         className="w-full h-full object-cover"
         onError={() => setDead(true)}
       />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/0 to-black/30" />
-      <span className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/60 backdrop-blur text-[10px] font-bold tracking-wider text-white border border-white/10">
-        GIF
-      </span>
+
+      {/* Simulated Remix Caption Overlay for Phase 1 */}
+      {gif.is_remix && gif.remix_caption && (
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/0 to-black/30 pointer-events-none flex flex-col justify-end p-3 pb-12">
+          <div className={`text-center mb-1 ${
+            gif.remix_style === 'Meme' ? 'font-black uppercase text-xl text-white drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] [text-shadow:-2px_-2px_0_#000,2px_-2px_0_#000,-2px_2px_0_#000,2px_2px_0_#000]' :
+            gif.remix_style === 'Neon' ? 'font-bold text-lg text-fuchsia-400 drop-shadow-[0_0_10px_rgba(217,70,239,0.8)]' :
+            'font-bold text-base text-white drop-shadow-md'
+          }`}>
+            {gif.remix_caption}
+          </div>
+        </div>
+      )}
+      {!gif.is_remix && <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/0 to-black/30 pointer-events-none" />}
+
+      <div className="absolute top-2 left-2 flex flex-col gap-1 z-10 pointer-events-none items-start">
+        <div className="flex gap-1">
+          <span className="px-2 py-0.5 rounded-md bg-black/60 backdrop-blur text-[10px] font-bold tracking-wider text-white border border-white/10 text-center w-fit">
+            GIF
+          </span>
+          {gif.is_remix && (
+            <span className="px-2 py-0.5 rounded-md bg-fuchsia-600/80 backdrop-blur text-[9px] font-bold tracking-wider text-white border border-fuchsia-400/30 text-center w-fit shadow-[0_0_8px_rgba(217,70,239,0.6)]">
+              REMIX
+            </span>
+          )}
+        </div>
+        {gif.is_remix && gif.original_profile && (
+          <span className="px-1.5 py-0.5 rounded bg-black/60 backdrop-blur text-[8px] font-bold text-zinc-300 border border-white/10 truncate max-w-[120px]">
+            Remix of @{gif.original_profile.username || gif.original_profile.display_name}
+          </span>
+        )}
+      </div>
 
       {/* Save to Library — always visible, like the GIF badge */}
       {!onDelete && (

@@ -7,6 +7,8 @@ export type ReactionAsset = {
   tags: string[];
   previewUrl: string;
   gifUrl: string;
+  mp4Url?: string;
+  webmUrl?: string;
   width?: number;
   height?: number;
   shareUrl?: string;

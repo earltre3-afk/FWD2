@@ -86,9 +86,11 @@ function json(res, status, body) {
 
 function giphyAsset(item, query) {
   const fixed = item.images?.fixed_width;
-  const preview = item.images?.fixed_width_small || item.images?.preview_gif || fixed;
+  const small = item.images?.fixed_width_small;
+  const preview = small || item.images?.preview_gif || fixed;
   const original = item.images?.original || fixed || preview;
   if (!preview?.url || !original?.url) return null;
+  const mp4Url = original?.mp4 || fixed?.mp4 || small?.mp4 || undefined;
   return {
     id: `giphy:${item.id}`,
     source: 'giphy',
@@ -98,6 +100,7 @@ function giphyAsset(item, query) {
     tags: query.split(' ').filter(Boolean),
     previewUrl: preview.url,
     gifUrl: original.url,
+    mp4Url,
     width: Number(original.width || preview.width) || undefined,
     height: Number(original.height || preview.height) || undefined,
     shareUrl: item.url,
@@ -112,7 +115,9 @@ function tenorAsset(item, query) {
   const media = item.media_formats || {};
   const preview = media.tinygif || media.nanogif || media.gif;
   const full = media.gif || preview;
+  const mp4 = media.mp4 || media.tinymp4 || media.nanomp4;
   if (!preview?.url || !full?.url) return null;
+  const dims = full.dims || preview?.dims || [];
   return {
     id: `tenor:${item.id}`,
     source: 'tenor',
@@ -122,8 +127,9 @@ function tenorAsset(item, query) {
     tags: [query, ...(item.tags || [])].filter(Boolean),
     previewUrl: preview.url,
     gifUrl: full.url,
-    width: Array.isArray(full.dims) ? full.dims[0] : undefined,
-    height: Array.isArray(full.dims) ? full.dims[1] : undefined,
+    mp4Url: mp4?.url || undefined,
+    width: Array.isArray(dims) ? dims[0] : undefined,
+    height: Array.isArray(dims) ? dims[1] : undefined,
     shareUrl: item.itemurl,
     attributionLabel: 'Powered by Tenor',
     attributionUrl: 'https://tenor.com/',

@@ -34,3 +34,4 @@ supabase/.temp/
 android/key.properties
 android/app/*.jks
 android/app/*.keystore
+.env*.local

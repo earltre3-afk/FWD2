@@ -594,12 +594,17 @@ const CreateGif: React.FC = () => {
   };
 
   const postToFeed = async () => {
+    if (!user) {
+      toast({ title: 'Sign in to share', description: 'Create an account to post to the public feed.' });
+      nav('/login');
+      return;
+    }
     if (!savedGif) return;
     setCreationState('uploading');
     const post = await createPost(savedGif.id, caption);
     if (post) {
       setCreationState('posted');
-      toast({ title: 'Posted to feed', description: 'Your GIF is live on the FWD feed.' });
+      toast({ title: 'Posted to feed', description: 'Your GIF is live on the public feed.' });
       setTimeout(() => nav('/feed'), 800);
     } else {
       toast({ title: 'Post failed', description: 'Could not post to feed. Try again.', variant: 'destructive' });

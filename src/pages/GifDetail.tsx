@@ -87,6 +87,7 @@ const GifDetail: React.FC = () => {
   const [packs, setPacks] = useState<{ id: string; name: string }[]>([]);
   const [packsLoading, setPacksLoading] = useState(false);
   const [packMenuOpen, setPackMenuOpen] = useState(false);
+  const [remixes, setRemixes] = useState<Gif[]>([]);
   const fav = gif ? isFavorite(gif.id, gif.image) : false;
 
   // Load GIF from DB if UUID
@@ -183,9 +184,42 @@ const GifDetail: React.FC = () => {
         ...row,
         profile: null,
       })));
+      
+      // Load public remixes
+      if (uuidLike(id)) {
+        const { data: remixData } = await supabase
+          .from('fwd_gifs')
+          .select('*')
+          .eq('remixed_from_gif_id', id)
+          .eq('visibility', 'public')
+          .order('created_at', { ascending: false })
+          .limit(10);
+          
+        if (remixData) {
+          setRemixes(remixData.map(g => {
+            const media = resolveFwdMedia(g);
+            return {
+              id: g.id,
+              title: g.title || 'Untitled',
+              image: media.animatedUrl || '',
+              still_url: media.thumbnailUrl || undefined,
+              tags: g.tags || [],
+              category: g.category || 'Reactions',
+              user_id: g.owner_user_id,
+              allow_reuse: g.allow_reuse ?? true,
+              visibility: g.visibility,
+              mp4_url: media.mp4Url,
+              webm_url: media.webmUrl,
+              source_video_url: media.sourceVideoUrl,
+              media_type: g.media_type,
+              is_animated: g.is_animated ?? media.isLikelyAnimated,
+            };
+          }));
+        }
+      }
     })();
     return () => { cancel = true; };
-  }, [id, user]);
+  }, [id, user, gif]);
 
   const shareId = gif?.id && uuidLike(gif.id) ? gif.id : undefined;
 
@@ -371,39 +405,14 @@ const GifDetail: React.FC = () => {
     setReactPickerOpen(false);
   };
 
-  // Remix — open Create page pre-loaded with this GIF
+  // Remix — open Remix Studio
   const remix = () => {
     if (!gif) return;
-    if (!user) {
-      toast({ title: 'Sign in to remix', description: 'Create an account to remix FWDs.' });
-      nav('/login');
-      return;
-    }
-    if (gif.visibility === 'private' && gif.user_id !== user.id) {
+    if (gif.visibility === 'private' && user?.id !== gif.user_id) {
       toast({ title: 'Cannot remix private content', variant: 'destructive' });
       return;
     }
-    nav('/create', {
-      state: {
-        image: gif.image,
-        mediaType: gif.media_type || 'image/gif',
-        title: `Remix: ${gif.title}`,
-        tags: gif.tags,
-        mood: gif.mood,
-        caption: gif.caption,
-        trim_start: gif.trim_start,
-        trim_end: gif.trim_end,
-        original_duration: gif.original_duration,
-        edited_duration: gif.edited_duration,
-        crop_x: gif.crop_x,
-        crop_y: gif.crop_y,
-        crop_width: gif.crop_width,
-        crop_height: gif.crop_height,
-        crop_aspect_ratio: gif.crop_aspect_ratio,
-        output_aspect_ratio: gif.output_aspect_ratio,
-        edit_metadata: gif.edit_metadata,
-      },
-    });
+    nav(`/remix/${gif.id}`);
   };
 
   // Add to Pack
@@ -738,11 +747,21 @@ const GifDetail: React.FC = () => {
               </section>
             )}
 
+            {/* Remixes of this GIF */}
+            {remixes.length > 0 && (
+              <>
+                <h3 className="text-base font-black text-white tracking-wider mt-7 mb-3 animate-text-glow">REMIXES OF THIS GIF</h3>
+                <div className="grid grid-cols-3 md:grid-cols-4 gap-3 stagger-children">
+                  {remixes.map(g => <GifCard key={g.id} gif={g} showHeart={false} />)}
+                </div>
+              </>
+            )}
+
             {/* More like this */}
             {related.length > 0 && (
               <>
-                <h3 className="text-base font-black text-white tracking-wider mt-7 mb-3">MORE LIKE THIS</h3>
-                <div className="grid grid-cols-3 md:grid-cols-4 gap-3">
+                <h3 className="text-base font-black text-white tracking-wider mt-7 mb-3 animate-text-glow">MORE LIKE THIS</h3>
+                <div className="grid grid-cols-3 md:grid-cols-4 gap-3 stagger-children">
                   {related.map(g => <GifCard key={g.id} gif={g} showHeart={false} />)}
                 </div>
               </>

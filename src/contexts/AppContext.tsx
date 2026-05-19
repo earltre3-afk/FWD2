@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUserMemory } from '@/hooks/useUserMemory';
@@ -39,6 +39,14 @@ export interface Gif {
   crop_aspect_ratio?: string | null;
   output_aspect_ratio?: string | null;
   edit_metadata?: MediaEditMetadata | null;
+  // Remix metadata
+  remixed_from_gif_id?: string | null;
+  remixed_from_user_id?: string | null;
+  remix_caption?: string | null;
+  remix_style?: string | null;
+  remix_mood?: string | null;
+  is_remix?: boolean;
+  original_profile?: { display_name: string | null; username: string | null } | null;
 }
 
 export interface Collection {
@@ -63,6 +71,8 @@ export interface FwdPost {
   profile?: { display_name: string | null; username: string | null; avatar_url: string | null };
   liked_by_me?: boolean;
   saved_by_me?: boolean;
+  // Remix context
+  remixed_from_gif_id?: string | null;
 }
 
 interface AppContextType {
@@ -124,6 +134,13 @@ export interface CreateGifPayload {
   crop_aspect_ratio?: string | null;
   output_aspect_ratio?: string | null;
   edit_metadata?: MediaEditMetadata | null;
+  // Remix payload
+  remixed_from_gif_id?: string | null;
+  remixed_from_user_id?: string | null;
+  remix_caption?: string | null;
+  remix_style?: string | null;
+  remix_mood?: string | null;
+  is_remix?: boolean;
 }
 
 const defaultGuestCollections: Collection[] = [
@@ -193,6 +210,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       crop_aspect_ratio: g.crop_aspect_ratio ?? null,
       output_aspect_ratio: g.output_aspect_ratio ?? null,
       edit_metadata: editMetadataFromDb(g),
+      remixed_from_gif_id: g.remixed_from_gif_id ?? null,
+      remixed_from_user_id: g.remixed_from_user_id ?? null,
+      remix_caption: g.remix_caption ?? null,
+      remix_style: g.remix_style ?? null,
+      remix_mood: g.remix_mood ?? null,
+      is_remix: g.is_remix ?? false,
+      original_profile: Array.isArray(g.original_profile) ? g.original_profile[0] : g.original_profile,
     };
   };
 
@@ -386,17 +410,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       height: payload.height ?? null,
       file_size_bytes: payload.file_size_bytes ?? null,
       duration_ms: payload.duration_ms ?? null,
-      trim_start: payload.trim_start ?? null,
-      trim_end: payload.trim_end ?? null,
-      original_duration: payload.original_duration ?? null,
-      edited_duration: payload.edited_duration ?? null,
-      crop_x: payload.crop_x ?? null,
-      crop_y: payload.crop_y ?? null,
-      crop_width: payload.crop_width ?? null,
-      crop_height: payload.crop_height ?? null,
-      crop_aspect_ratio: payload.crop_aspect_ratio ?? null,
-      output_aspect_ratio: payload.output_aspect_ratio ?? null,
-      edit_metadata: payload.edit_metadata ?? null,
+      remixed_from_gif_id: payload.remixed_from_gif_id ?? null,
+      remixed_from_user_id: payload.remixed_from_user_id ?? null,
+      remix_caption: payload.remix_caption ?? null,
+      remix_style: payload.remix_style ?? null,
+      remix_mood: payload.remix_mood ?? null,
+      is_remix: payload.is_remix ?? false,
     };
 
     const { data, error } = await supabase.from('fwd_gifs').insert(insertPayload).select().single();
@@ -477,24 +496,119 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // ---- Feed ----
 
   const fetchFeedPage = useCallback(async (offset: number, userId: string | undefined) => {
-    const { data, error } = await supabase
+    // If it's the first page, fetch a larger batch to rank
+    const limit = offset === 0 ? 100 : FEED_PAGE_SIZE;
+    
+    // Try the combined query first
+    let { data, error } = await supabase
       .from('fwd_feed_posts')
       .select(`
-        *,
-        gif:gif_id ( id, gif_url, media_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, title, allow_reuse, allow_download, owner_user_id, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata ),
-        profile:fwd_feed_posts_user_profiles_fk ( display_name, username, avatar_url )
+        id, user_id, gif_id, caption, visibility, like_count, comment_count, save_count, reuse_count, created_at,
+        profile:fwd_profiles!user_id ( display_name, username, avatar_url ),
+        gif:gif_id ( id, gif_url, media_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, title, allow_reuse, allow_download, owner_user_id, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata, tags, category, mood, remixed_from_gif_id, remixed_from_user_id, remix_caption, remix_style, remix_mood, is_remix, original_profile:fwd_profiles!remixed_from_user_id ( display_name, username ) ),
+        remix_gif:gif_id ( remixed_from_gif_id )
       `)
       .eq('visibility', 'public')
       .order('created_at', { ascending: false })
-      .range(offset, offset + FEED_PAGE_SIZE - 1);
+      .range(offset, offset + limit - 1);
 
-    if (error || !data) return [];
+    if (error) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[fetchFeedPage] Combined query failed, trying fallback:', { code: error.code, message: error.message, details: error.details, hint: error.hint });
+      }
+      // Fallback: fetch posts without joins, then hydrate separately
+      const fallback = await supabase
+        .from('fwd_feed_posts')
+        .select('*')
+        .eq('visibility', 'public')
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limit - 1);
+
+      if (fallback.error || !fallback.data) {
+        if (process.env.NODE_ENV === 'development') {
+          console.error('[fetchFeedPage] Fallback query also failed:', fallback.error);
+        }
+        return [];
+      }
+
+      // Hydrate gifs and profiles separately
+      const gifIds = [...new Set(fallback.data.map((p: any) => p.gif_id).filter(Boolean))];
+      const userIds = [...new Set(fallback.data.map((p: any) => p.user_id).filter(Boolean))];
+
+      const [gifsRes, profilesRes] = await Promise.all([
+        gifIds.length > 0 ? supabase.from('fwd_gifs').select('*, original_profile:fwd_profiles!remixed_from_user_id(display_name, username)').in('id', gifIds) : { data: [] },
+        userIds.length > 0 ? supabase.from('profiles').select('id, display_name, username, avatar_url').in('id', userIds) : { data: [] },
+      ]);
+
+      const gifMap = new Map((gifsRes.data || []).map((g: any) => [g.id, g]));
+      const profileMap = new Map((profilesRes.data || []).map((p: any) => [p.id, p]));
+
+      data = fallback.data.map((p: any) => ({
+        ...p,
+        gif: gifMap.get(p.gif_id) || null,
+        profile: profileMap.get(p.user_id) || null,
+      }));
+      error = null;
+    }
+
+    if (!data) return [];
+    
+    let sortedData = [...data];
+
+    // Apply Prescribe Me Personalization if on first page
+    if (userId && offset === 0 && data.length > 0) {
+      try {
+        const [profRes, followsRes] = await Promise.all([
+          supabase.from('profiles').select('*').eq('id', userId).single(),
+          supabase.from('follows').select('following_id').eq('follower_id', userId)
+        ]);
+        
+        const userProf = profRes.data || {};
+        const follows = new Set((followsRes.data || []).map((f: any) => f.following_id));
+        
+        const interests = Array.isArray(userProf.content_interests) ? userProf.content_interests : (Array.isArray(userProf.interests) ? userProf.interests : []);
+        const moods = Array.isArray(userProf.mood_preferences) ? userProf.mood_preferences : (Array.isArray(userProf.moods) ? userProf.moods : []);
+        const categories = Array.isArray(userProf.categories) ? userProf.categories : [];
+        const tags = Array.isArray(userProf.tags) ? userProf.tags : [];
+
+        if (interests.length || moods.length || categories.length || tags.length || follows.size) {
+          sortedData.sort((a, b) => {
+            const scorePost = (p: any) => {
+              let s = 0;
+              // Recency boost (fresher gets slightly more points)
+              const hoursOld = (Date.now() - new Date(p.created_at).getTime()) / 3600000;
+              if (hoursOld < 24) s += 5;
+              if (hoursOld < 1) s += 10;
+              
+              // Followed creator boost
+              if (follows.has(p.user_id)) s += 20;
+
+              // Preferences boost
+              if (p.gif) {
+                if (categories.includes(p.gif.category)) s += 15;
+                if (moods.includes(p.gif.mood)) s += 15;
+                const gifTags = p.gif.tags || [];
+                if (interests.some((i: string) => gifTags.includes(i))) s += 10;
+                if (tags.some((t: string) => gifTags.includes(t))) s += 10;
+              }
+              return s;
+            };
+            return scorePost(b) - scorePost(a); // Highest score first
+          });
+        }
+      } catch (err) {
+        console.error('Prescribe Me ranking failed, falling back to newest:', err);
+      }
+      
+      // Trim to page size
+      sortedData = sortedData.slice(0, FEED_PAGE_SIZE);
+    }
 
     let likedSet = new Set<string>();
     let savedSet = new Set<string>();
 
-    if (userId && data.length > 0) {
-      const postIds = data.map((p: any) => p.id);
+    if (userId && sortedData.length > 0) {
+      const postIds = sortedData.map((p: any) => p.id);
       const [likedRes, savedRes] = await Promise.all([
         supabase.from('fwd_post_likes').select('post_id').eq('user_id', userId).in('post_id', postIds),
         supabase.from('fwd_post_saves').select('post_id').eq('user_id', userId).in('post_id', postIds),
@@ -506,7 +620,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setLikedPostIds(prev => new Set([...prev, ...likedSet]));
     setSavedPostIds(prev => new Set([...prev, ...savedSet]));
 
-    return data.map((p: any): FwdPost => ({
+    return sortedData.map((p: any): FwdPost => ({
       id: p.id,
       user_id: p.user_id,
       gif_id: p.gif_id,
@@ -521,12 +635,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       profile: Array.isArray(p.profile) ? p.profile[0] : p.profile,
       liked_by_me: likedSet.has(p.id),
       saved_by_me: savedSet.has(p.id),
+      remixed_from_gif_id: Array.isArray(p.remix_gif) ? p.remix_gif[0]?.remixed_from_gif_id : p.remix_gif?.remixed_from_gif_id,
     }));
   }, []);
+
+  const feedNeedsRefresh = useRef(false);
 
   const loadMoreFeed = useCallback(async () => {
     if (feedLoading || !feedHasMore) return;
     setFeedLoading(true);
+    feedNeedsRefresh.current = false;
     const posts = await fetchFeedPage(feedOffset, user?.id);
     if (posts.length < FEED_PAGE_SIZE) setFeedHasMore(false);
     setFeedPosts(prev => feedOffset === 0 ? posts : [...prev, ...posts]);
@@ -538,39 +656,76 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setFeedPosts([]);
     setFeedOffset(0);
     setFeedHasMore(true);
+    setFeedLoading(false);
+    feedNeedsRefresh.current = true;
   }, [user]);
 
-  const createPost = useCallback(async (gifId: string, caption: string): Promise<FwdPost | null> => {
-    if (!user) return null;
-    const profileReady = await ensureProfile();
-    if (!profileReady) return null;
+  // Re-fetch feed after user change clears state
+  useEffect(() => {
+    if (feedNeedsRefresh.current && !feedLoading) {
+      feedNeedsRefresh.current = false;
+      loadMoreFeed();
+    }
+  }, [user, feedLoading, loadMoreFeed]);
 
-    const { data, error } = await supabase.from('fwd_feed_posts').insert({
+  const createPost = useCallback(async (gifId: string, caption: string): Promise<FwdPost | null> => {
+    if (!user) {
+      if (process.env.NODE_ENV === 'development') console.error('[createPost] No user found');
+      return null;
+    }
+    const profileReady = await ensureProfile();
+    if (!profileReady) {
+      if (process.env.NODE_ENV === 'development') console.error('[createPost] ensureProfile failed');
+      return null;
+    }
+
+    const payload = {
       user_id: user.id,
       gif_id: gifId,
       caption: caption.trim() || null,
       visibility: 'public',
-    }).select(`
-      *,
-      gif:gif_id ( id, gif_url, media_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, title, allow_reuse, allow_download, owner_user_id, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata ),
-      profile:fwd_feed_posts_user_profiles_fk ( display_name, username, avatar_url )
-    `).single();
+    };
+    if (process.env.NODE_ENV === 'development') console.log('[createPost] Inserting fwd_feed_posts:', payload);
 
-    if (error || !data) return null;
+    // Step 1: Insert without complex selects
+    const { data: insertData, error: insertError } = await supabase
+      .from('fwd_feed_posts')
+      .insert(payload)
+      .select('id, user_id, gif_id, caption, visibility, created_at')
+      .single();
+
+    if (insertError || !insertData) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[createPost] fwd_feed_posts insert error:', { error: insertError, code: insertError?.code, message: insertError?.message, details: insertError?.details, hint: insertError?.hint });
+      }
+      return null;
+    }
+
+    // Step 2: Ensure the underlying GIF is marked public so the feed post works correctly
+    const { error: updateError } = await supabase.from('fwd_gifs').update({ visibility: 'public' }).eq('id', gifId).eq('owner_user_id', user.id);
+    if (updateError && process.env.NODE_ENV === 'development') {
+      console.error('[createPost] fwd_gifs update error:', { code: updateError.code, message: updateError.message, details: updateError.details, hint: updateError.hint });
+    }
+
+    // Step 3: Fetch the related profile and gif for the client UI
+    const [profileRes, gifRes] = await Promise.all([
+      supabase.from('profiles').select('display_name, username, avatar_url').eq('id', user.id).single(),
+      supabase.from('fwd_gifs').select('*').eq('id', gifId).single()
+    ]);
 
     const post: FwdPost = {
-      id: data.id,
-      user_id: data.user_id,
-      gif_id: data.gif_id,
-      gif: data.gif ? dbGifToGif(data.gif) : null,
-      caption: data.caption,
-      visibility: data.visibility,
+      id: insertData.id,
+      user_id: insertData.user_id,
+      gif_id: insertData.gif_id,
+      gif: gifRes.data ? dbGifToGif(gifRes.data) : null,
+      caption: insertData.caption,
+      visibility: insertData.visibility,
       like_count: 0,
       comment_count: 0,
       save_count: 0,
       reuse_count: 0,
-      created_at: data.created_at,
-      profile: Array.isArray(data.profile) ? data.profile[0] : data.profile,
+      created_at: insertData.created_at,
+      profile: profileRes.data || { display_name: 'FWD User', username: `user_${user.id.slice(0, 6)}`, avatar_url: null },
       liked_by_me: false,
       saved_by_me: false,
     };
@@ -582,12 +737,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updatePost = useCallback(async (postId: string, gifId: string, caption: string) => {
     if (!user) return false;
 
+    // Ensure the new GIF is public
+    await supabase.from('fwd_gifs').update({ visibility: 'public' }).eq('id', gifId).eq('owner_user_id', user.id);
+
     const { data, error } = await supabase.from('fwd_feed_posts').update({
       gif_id: gifId,
       caption: caption.trim() || null,
     }).eq('id', postId).select(`
       *,
-      gif:gif_id ( id, gif_url, media_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, title, allow_reuse, allow_download, owner_user_id, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata ),
+      gif:gif_id ( id, gif_url, media_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, title, allow_reuse, allow_download, owner_user_id, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata, original_profile:fwd_profiles!remixed_from_user_id ( display_name, username ) ),
       profile:fwd_feed_posts_user_profiles_fk ( display_name, username, avatar_url )
     `).maybeSingle();
 

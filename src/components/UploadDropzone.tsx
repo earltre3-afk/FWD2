@@ -23,7 +23,14 @@ const UploadDropzone: React.FC<Props> = ({ onUploaded, currentPreview }) => {
   const [localPreview, setLocalPreview] = useState<string | null>(null);
   const [fileMeta, setFileMeta] = useState<{ name: string; type: string; size: number } | null>(null);
 
+  React.useEffect(() => {
+    return () => {
+      if (localPreview) URL.revokeObjectURL(localPreview);
+    };
+  }, [localPreview]);
+
   const reset = () => {
+    if (localPreview) URL.revokeObjectURL(localPreview);
     setStatus('idle'); setProgress(0); setErrorMsg(''); setLocalPreview(null); setFileMeta(null);
   };
 

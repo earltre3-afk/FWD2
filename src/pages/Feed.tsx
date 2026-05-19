@@ -292,10 +292,13 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
   };
 
   return (
-    <article className="glass-strong rounded-3xl border border-fuchsia-500/20 overflow-hidden mb-4">
+    <article className="glass-strong rounded-3xl border border-fuchsia-500/20 overflow-hidden mb-4 animate-fade-up hover-lift">
       {/* Header */}
       <div className="flex items-center justify-between px-4 pt-4 pb-3">
-        <div className="flex items-center gap-3">
+        <div 
+          className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition"
+          onClick={() => nav(`/u/${post.profile?.username || post.user_id}`)}
+        >
           <div className="w-10 h-10 rounded-full p-[2px] bg-gradient-to-br from-fuchsia-500 to-cyan-400">
             {avatar ? (
               <img src={avatar} className="w-full h-full rounded-full object-cover" alt={displayName} />
@@ -306,7 +309,7 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
             )}
           </div>
           <div>
-            <p className="font-bold text-white text-sm leading-tight">{displayName}</p>
+            <p className="font-bold text-white text-sm leading-tight hover:underline">{displayName}</p>
             <p className="text-zinc-500 text-xs">{relativeTime(post.created_at)}</p>
           </div>
         </div>
@@ -366,7 +369,33 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
             style={{ maxHeight: '480px', display: 'block' } as React.CSSProperties}
             objectFit="contain"
           />
-          <span className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/60 text-[10px] font-bold tracking-wider text-white border border-white/10">GIF</span>
+          
+          {/* Simulated Remix Caption Overlay for Phase 1 */}
+          {post.gif.is_remix && post.gif.remix_caption && (
+             <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none flex flex-col justify-end p-4">
+               <div className={`text-center mb-2 ${
+                 post.gif.remix_style === 'Meme' ? 'font-black uppercase text-2xl text-white drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] [text-shadow:-2px_-2px_0_#000,2px_-2px_0_#000,-2px_2px_0_#000,2px_2px_0_#000]' :
+                 post.gif.remix_style === 'Neon' ? 'font-bold text-xl text-fuchsia-400 drop-shadow-[0_0_10px_rgba(217,70,239,0.8)]' :
+                 'font-bold text-lg text-white drop-shadow-md'
+               }`}>
+                 {post.gif.remix_caption}
+               </div>
+             </div>
+          )}
+
+          <div className="absolute top-2 left-2 flex flex-col gap-1 items-start">
+            <div className="flex gap-1">
+              <span className="px-2 py-0.5 rounded bg-black/60 text-[10px] font-bold tracking-wider text-white border border-white/10">GIF</span>
+              {post.gif.is_remix && (
+                <span className="px-2 py-0.5 rounded bg-fuchsia-600/80 text-[10px] font-bold tracking-wider text-white border border-fuchsia-400/30">REMIX</span>
+              )}
+            </div>
+            {post.gif.is_remix && post.gif.original_profile && (
+              <span className="px-2 py-0.5 rounded bg-black/60 backdrop-blur text-[9px] font-bold text-zinc-300 border border-white/10 truncate max-w-[200px]">
+                Remix of @{post.gif.original_profile.username || post.gif.original_profile.display_name}
+              </span>
+            )}
+          </div>
         </div>
       ) : (
         <div className="h-40 flex items-center justify-center bg-black/40 text-zinc-600 text-sm">GIF unavailable</div>
@@ -422,11 +451,11 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
 
         {post.gif?.allow_reuse && (
           <button
-            onClick={(event) => { stopActionEvent(event); handleReuse(); }}
+            onClick={(event) => { stopActionEvent(event); nav(`/remix/${post.gif_id}`); }}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl hover:bg-white/5 transition ml-auto"
           >
             <RefreshCw size={16} className="text-cyan-400" />
-            <span className="text-xs font-semibold text-cyan-400">Reuse</span>
+            <span className="text-xs font-semibold text-cyan-400">Remix</span>
           </button>
         )}
 
@@ -458,12 +487,12 @@ const Feed: React.FC = () => {
   const [composerOpen, setComposerOpen] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
-  // Load initial feed
+  // Load initial feed (also re-triggers when the context clears feedPosts on user change)
   useEffect(() => {
     if (feedPosts.length === 0 && !feedLoading) {
       loadMoreFeed();
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [feedPosts.length, feedLoading, loadMoreFeed]);
 
   // Infinite scroll observer
   useEffect(() => {
@@ -477,7 +506,7 @@ const Feed: React.FC = () => {
   }, [feedHasMore, feedLoading, loadMoreFeed]);
 
   return (
-    <div className="min-h-screen pb-32">
+    <div className="min-h-screen pb-32 page-content">
       <div className="max-w-md md:max-w-lg mx-auto px-4 pt-6">
 
         {/* Header */}
@@ -490,14 +519,14 @@ const Feed: React.FC = () => {
         {/* Post button */}
         <button
           onClick={() => user ? setComposerOpen(true) : nav('/login')}
-          className="w-full mb-5 py-3.5 rounded-2xl bg-gradient-to-r from-fuchsia-600 via-pink-500 to-cyan-500 text-white font-black tracking-wide neon-glow-purple flex items-center justify-center gap-2"
+          className="w-full mb-5 py-3.5 rounded-2xl bg-gradient-to-r from-fuchsia-600 via-pink-500 to-cyan-500 text-white font-black tracking-wide neon-glow-purple flex items-center justify-center gap-2 btn-press animate-gradient-flow"
         >
           <Plus size={18} /> Post a GIF
         </button>
 
         {/* Feed */}
         {feedPosts.length === 0 && !feedLoading && (
-          <div className="glass-strong rounded-3xl border border-fuchsia-500/20 p-10 text-center">
+          <div className="glass-strong rounded-3xl border border-fuchsia-500/20 p-10 text-center animate-fade-up">
             <div className="w-16 h-16 mx-auto rounded-full bg-fuchsia-500/10 border border-fuchsia-500/30 flex items-center justify-center mb-4">
               <Zap size={28} className="text-fuchsia-400" />
             </div>
@@ -505,7 +534,7 @@ const Feed: React.FC = () => {
             <p className="text-sm text-zinc-400 mb-5">Be the first to forward a vibe.</p>
             <button
               onClick={() => nav('/create')}
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-fuchsia-600 to-pink-500 text-white font-bold neon-glow-pink"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-fuchsia-600 to-pink-500 text-white font-bold neon-glow-pink btn-press animate-gradient-flow"
             >
               <Zap size={16} /> Create a GIF
             </button>
