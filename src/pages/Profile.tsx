@@ -57,7 +57,7 @@ const Profile: React.FC = () => {
         .from('fwd_feed_posts')
         .select(`
           id, gif_id,
-          gif:gif_id ( id, title, gif_url, media_url, mp4_url, webm_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, tags, category, mood, owner_user_id, allow_reuse, allow_download, visibility, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata, remixed_from_gif_id, remixed_from_user_id, remix_caption, remix_style, remix_mood, is_remix )
+          gif:gif_id ( id, title, gif_url, media_url, mp4_url, webm_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, tags, category, mood, owner_user_id, allow_reuse, allow_download, visibility, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata, remixed_from_gif_id, remixed_from_user_id, remix_caption, remix_style, remix_mood, is_remix, remix_mode, remix_media_url, remix_media_type, remix_layout, remix_ai_recipe, remix_tags )
         `)
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
@@ -102,6 +102,13 @@ const Profile: React.FC = () => {
             remix_style: g.remix_style ?? null,
             remix_mood: g.remix_mood ?? null,
             remixed_from_gif_id: g.remixed_from_gif_id ?? null,
+            remixed_from_user_id: g.remixed_from_user_id ?? null,
+            remix_mode: g.remix_mode ?? null,
+            remix_media_url: g.remix_media_url ?? null,
+            remix_media_type: g.remix_media_type ?? null,
+            remix_layout: g.remix_layout ?? null,
+            remix_ai_recipe: g.remix_ai_recipe ?? null,
+            remix_tags: g.remix_tags ?? null,
           } as Gif;
         })
         .filter(Boolean) as Gif[];

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bookmark, Play, Share2, Trash2, AlertTriangle } from 'lucide-react';
 import { Gif, useAppContext } from '@/contexts/AppContext';
-import FwdMediaPlayer from '@/components/FwdMediaPlayer';
+import RemixMediaRenderer from '@/components/RemixMediaRenderer';
 import { toast } from '@/components/ui/use-toast';
 import { stopActionEvent } from '@/lib/actionEvents';
 import { shareFwdItem, getFwdShareUrl } from '@/lib/fwdShare';
@@ -71,27 +71,7 @@ const GifCard: React.FC<Props> = ({
       onClick={handleClick}
       className={`relative group cursor-pointer rounded-xl sm:rounded-2xl overflow-hidden glass-strong border border-fuchsia-500/20 hover:border-fuchsia-500/60 transition-all hover-lift ${tall ? 'aspect-[3/4]' : 'aspect-square'} ${className}`}
     >
-      <FwdMediaPlayer
-        mp4Url={gif.mp4_url}
-        webmUrl={gif.webm_url}
-        gifUrl={gif.image}
-        posterUrl={gif.still_url}
-        sourceVideoUrl={gif.source_video_url}
-        mediaType={gif.media_type}
-        isAnimated={gif.is_animated}
-        editMetadata={gif.edit_metadata}
-        trimStart={gif.trim_start}
-        trimEnd={gif.trim_end}
-        cropX={gif.crop_x}
-        cropY={gif.crop_y}
-        cropWidth={gif.crop_width}
-        cropHeight={gif.crop_height}
-        cropAspectRatio={gif.crop_aspect_ratio}
-        outputAspectRatio={gif.output_aspect_ratio}
-        title={gif.title}
-        className="w-full h-full object-cover"
-        onError={() => setDead(true)}
-      />
+      <RemixMediaRenderer gif={gif} onError={() => setDead(true)} />
 
       {/* Simulated Remix Caption Overlay for Phase 1 */}
       {gif.is_remix && gif.remix_caption && (

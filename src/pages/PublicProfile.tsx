@@ -48,7 +48,7 @@ const PublicProfile: React.FC = () => {
       const [{ data: g }, followersRes, followingRes, savedRes] = await Promise.all([
         supabase
         .from('fwd_feed_posts')
-        .select('*, gif:gif_id ( id, gif_url, media_url, still_url, thumbnail_url, mp4_url, webm_url, source_video_url, media_type, is_animated, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata, tags, category, mood, owner_user_id, title )')
+        .select('*, gif:gif_id ( id, gif_url, media_url, still_url, thumbnail_url, mp4_url, webm_url, source_video_url, media_type, is_animated, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata, tags, category, mood, owner_user_id, title, is_remix, remix_mode, remix_media_url, remix_media_type, remix_layout, remix_ai_recipe, remix_caption, remix_style, remix_mood )')
         .eq('user_id', (p as any).id)
         .eq('visibility', 'public')
         .order('created_at', { ascending: false }),
@@ -92,6 +92,15 @@ const PublicProfile: React.FC = () => {
           category: row.category || 'Reactions',
           mood: row.mood,
           user_id: row.owner_user_id,
+          is_remix: row.is_remix ?? false,
+          remix_mode: row.remix_mode ?? null,
+          remix_media_url: row.remix_media_url ?? null,
+          remix_media_type: row.remix_media_type ?? null,
+          remix_layout: row.remix_layout ?? null,
+          remix_ai_recipe: row.remix_ai_recipe ?? null,
+          remix_caption: row.remix_caption ?? null,
+          remix_style: row.remix_style ?? null,
+          remix_mood: row.remix_mood ?? null,
         };
       }));
       setLoading(false);

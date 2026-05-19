@@ -574,7 +574,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       .select(`
         id, user_id, gif_id, caption, visibility, like_count, comment_count, save_count, reuse_count, created_at,
         profile:fwd_profiles!user_id ( display_name, username, avatar_url ),
-        gif:gif_id ( id, gif_url, media_url, mp4_url, webm_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, title, allow_reuse, allow_download, owner_user_id, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata, tags, category, mood, remixed_from_gif_id, remixed_from_user_id, remix_caption, remix_style, remix_mood, is_remix, original_profile:fwd_profiles!remixed_from_user_id ( display_name, username ) ),
+        gif:gif_id ( id, gif_url, media_url, mp4_url, webm_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, title, allow_reuse, allow_download, owner_user_id, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata, tags, category, mood, remixed_from_gif_id, remixed_from_user_id, remix_caption, remix_style, remix_mood, is_remix, remix_mode, remix_media_url, remix_media_type, remix_layout, remix_ai_recipe, remix_tags, original_profile:fwd_profiles!remixed_from_user_id ( display_name, username ) ),
         remix_gif:gif_id ( remixed_from_gif_id )
       `)
       .eq('visibility', 'public')
@@ -839,7 +839,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       caption: caption.trim() || null,
     }).eq('id', postId).select(`
       *,
-      gif:gif_id ( id, gif_url, media_url, mp4_url, webm_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, title, allow_reuse, allow_download, owner_user_id, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata, original_profile:fwd_profiles!remixed_from_user_id ( display_name, username ) ),
+      gif:gif_id ( id, gif_url, media_url, mp4_url, webm_url, still_url, thumbnail_url, preview_url, source_video_url, media_type, is_animated, title, allow_reuse, allow_download, owner_user_id, trim_start, trim_end, original_duration, edited_duration, crop_x, crop_y, crop_width, crop_height, crop_aspect_ratio, output_aspect_ratio, edit_metadata, remixed_from_gif_id, remixed_from_user_id, remix_caption, remix_style, remix_mood, is_remix, remix_mode, remix_media_url, remix_media_type, remix_layout, remix_ai_recipe, remix_tags, original_profile:fwd_profiles!remixed_from_user_id ( display_name, username ) ),
       profile:fwd_feed_posts_user_profiles_fk ( display_name, username, avatar_url )
     `).maybeSingle();
 

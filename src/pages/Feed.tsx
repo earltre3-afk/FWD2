@@ -8,6 +8,7 @@ import {
 import FwdLogo from '@/components/FwdLogo';
 import BottomNav from '@/components/BottomNav';
 import FwdMediaPlayer from '@/components/FwdMediaPlayer';
+import RemixMediaRenderer from '@/components/RemixMediaRenderer';
 import FwdLibraryPicker from '@/components/FwdLibraryPicker';
 import { useAppContext, FwdPost, Gif } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -225,6 +226,15 @@ const PostEditor: React.FC<{ post: FwdPost; onClose: () => void; openPickerOnMou
 
 // ---- Post card ----
 const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
+  if (process.env.NODE_ENV === 'development') {
+    const g = post.gif;
+    const hasAnyMedia = !!(g?.image || g?.mp4_url || g?.webm_url || g?.source_video_url || g?.still_url || (g as any)?.preview_url);
+    if (!hasAnyMedia) {
+      console.warn('[Feed:PostCard] GIF unavailable for post', post.id, { gif_id: post.gif_id, gif: g });
+    } else if (g?.image?.startsWith('blob:')) {
+      console.warn('[Feed:PostCard] Blob URL detected (will fail after refresh)', { post_id: post.id, image: g.image });
+    }
+  }
   const { toggleLike, savePost, deletePost } = useAppContext();
   const { user } = useAuth();
   const nav = useNavigate();
@@ -345,59 +355,83 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
       </div>
 
       {/* GIF — the star */}
-      {post.gif?.image ? (
-        <div className="relative bg-black/60 w-full" style={{ maxHeight: '480px', minHeight: '240px' }}>
-          <FwdMediaPlayer
-            gifUrl={post.gif.image}
-            posterUrl={post.gif.still_url}
-            mp4Url={post.gif.mp4_url}
-            webmUrl={post.gif.webm_url}
-            sourceVideoUrl={post.gif.source_video_url}
-            mediaType={post.gif.media_type}
-            isAnimated={post.gif.is_animated}
-            editMetadata={post.gif.edit_metadata}
-            trimStart={post.gif.trim_start}
-            trimEnd={post.gif.trim_end}
-            cropX={post.gif.crop_x}
-            cropY={post.gif.crop_y}
-            cropWidth={post.gif.crop_width}
-            cropHeight={post.gif.crop_height}
-            cropAspectRatio={post.gif.crop_aspect_ratio}
-            outputAspectRatio={post.gif.output_aspect_ratio}
-            title={post.gif.title}
-            className="w-full object-contain"
-            style={{ maxHeight: '480px', display: 'block' } as React.CSSProperties}
-            objectFit="contain"
-          />
-          
-          {/* Simulated Remix Caption Overlay for Phase 1 */}
-          {post.gif.is_remix && post.gif.remix_caption && (
-             <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none flex flex-col justify-end p-4">
-               <div className={`text-center mb-2 ${
-                 post.gif.remix_style === 'Meme' ? 'font-black uppercase text-2xl text-white drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] [text-shadow:-2px_-2px_0_#000,2px_-2px_0_#000,-2px_2px_0_#000,2px_2px_0_#000]' :
-                 post.gif.remix_style === 'Neon' ? 'font-bold text-xl text-fuchsia-400 drop-shadow-[0_0_10px_rgba(217,70,239,0.8)]' :
-                 'font-bold text-lg text-white drop-shadow-md'
-               }`}>
-                 {post.gif.remix_caption}
-               </div>
-             </div>
-          )}
-
+      {(post.gif?.image || post.gif?.mp4_url || post.gif?.webm_url || post.gif?.source_video_url || post.gif?.still_url || (post.gif as any)?.preview_url) ? (() => {
+        const gif = post.gif!;
+        const hasRemixOverlay = gif.is_remix && gif.remix_media_url &&
+          ['reaction', 'split', 'ai-blend'].includes(gif.remix_mode || '');
+        const captionOverlay = gif.is_remix && gif.remix_caption ? (
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none flex flex-col justify-end p-4">
+            <div className={`text-center mb-2 ${
+              gif.remix_style === 'Meme' ? 'font-black uppercase text-2xl text-white drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] [text-shadow:-2px_-2px_0_#000,2px_-2px_0_#000,-2px_2px_0_#000,2px_2px_0_#000]' :
+              gif.remix_style === 'Neon' ? 'font-bold text-xl text-fuchsia-400 drop-shadow-[0_0_10px_rgba(217,70,239,0.8)]' :
+              'font-bold text-lg text-white drop-shadow-md'
+            }`}>
+              {gif.remix_caption}
+            </div>
+          </div>
+        ) : null;
+        const badges = (
           <div className="absolute top-2 left-2 flex flex-col gap-1 items-start">
             <div className="flex gap-1">
               <span className="px-2 py-0.5 rounded bg-black/60 text-[10px] font-bold tracking-wider text-white border border-white/10">GIF</span>
-              {post.gif.is_remix && (
+              {gif.is_remix && (
                 <span className="px-2 py-0.5 rounded bg-fuchsia-600/80 text-[10px] font-bold tracking-wider text-white border border-fuchsia-400/30">REMIX</span>
               )}
             </div>
-            {post.gif.is_remix && post.gif.original_profile && (
+            {gif.is_remix && gif.original_profile && (
               <span className="px-2 py-0.5 rounded bg-black/60 backdrop-blur text-[9px] font-bold text-zinc-300 border border-white/10 truncate max-w-[200px]">
-                Remix of @{post.gif.original_profile.username || post.gif.original_profile.display_name}
+                Remix of @{gif.original_profile.username || gif.original_profile.display_name}
               </span>
             )}
           </div>
-        </div>
-      ) : (
+        );
+
+        if (hasRemixOverlay) {
+          return (
+            <div
+              className="relative w-full aspect-square overflow-hidden bg-black cursor-pointer"
+              onClick={() => { if (post.gif_id) nav(`/gif/${post.gif_id}`, { state: { gif } }); }}
+            >
+              <RemixMediaRenderer gif={gif} />
+              {captionOverlay}
+              {badges}
+            </div>
+          );
+        }
+
+        return (
+          <div
+            className="relative bg-black/60 w-full cursor-pointer"
+            style={{ maxHeight: '480px', minHeight: '240px' }}
+            onClick={() => { if (post.gif_id) nav(`/gif/${post.gif_id}`, { state: { gif } }); }}
+          >
+            <FwdMediaPlayer
+              gifUrl={gif.image}
+              posterUrl={gif.still_url}
+              mp4Url={gif.mp4_url}
+              webmUrl={gif.webm_url}
+              sourceVideoUrl={gif.source_video_url}
+              mediaType={gif.media_type}
+              isAnimated={gif.is_animated}
+              editMetadata={gif.edit_metadata}
+              trimStart={gif.trim_start}
+              trimEnd={gif.trim_end}
+              cropX={gif.crop_x}
+              cropY={gif.crop_y}
+              cropWidth={gif.crop_width}
+              cropHeight={gif.crop_height}
+              cropAspectRatio={gif.crop_aspect_ratio}
+              outputAspectRatio={gif.output_aspect_ratio}
+              title={gif.title}
+              className="w-full object-contain"
+              style={{ maxHeight: '480px', display: 'block' } as React.CSSProperties}
+              objectFit="contain"
+            />
+            {captionOverlay}
+            {badges}
+          </div>
+        );
+      })() : (
         <div className="h-40 flex items-center justify-center bg-black/40 text-zinc-600 text-sm">GIF unavailable</div>
       )}
 
@@ -428,7 +462,7 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
         <button
           onClick={(event) => {
             stopActionEvent(event);
-            if (post.gif_id) nav(`/gif/${post.gif_id}`);
+            if (post.gif_id) nav(`/gif/${post.gif_id}`, { state: { gif: post.gif } });
           }}
           className="flex items-center gap-1.5 px-3 py-2 rounded-xl hover:bg-white/5 transition"
         >
@@ -451,7 +485,7 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
 
         {post.gif?.allow_reuse && (
           <button
-            onClick={(event) => { stopActionEvent(event); if (post.gif_id) nav(`/remix/${post.gif_id}`, { state: { gif: post.gif } }); }}
+            onClick={(event) => { stopActionEvent(event); if (post.gif_id && post.gif) nav(`/remix/${post.gif_id}`, { state: { gif: post.gif } }); }}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl hover:bg-white/5 transition ml-auto"
           >
             <RefreshCw size={16} className="text-cyan-400" />
