@@ -23,6 +23,11 @@ const PLACEMENT_STYLES: Record<string, React.CSSProperties> = {
 
 function OverlayMedia({ url, type }: { url: string; type?: string | null }) {
   const isVideo = type?.startsWith('video/') || /\.(mp4|webm|mov)(?:[?#].*)?$/i.test(url);
+  const onError = (e: React.SyntheticEvent<HTMLImageElement | HTMLVideoElement>) => {
+    if (import.meta.env.DEV) {
+      console.warn('[RemixMediaRenderer] overlay media failed to load', { url, type, target: (e.target as any)?.tagName });
+    }
+  };
   if (isVideo) {
     return (
       <video
@@ -32,10 +37,11 @@ function OverlayMedia({ url, type }: { url: string; type?: string | null }) {
         muted
         playsInline
         className="w-full h-full object-cover"
+        onError={onError}
       />
     );
   }
-  return <img src={url} alt="" className="w-full h-full object-cover" />;
+  return <img src={url} alt="" className="w-full h-full object-cover" onError={onError} />;
 }
 
 const RemixMediaRenderer: React.FC<Props> = ({ gif, onError }) => {
@@ -45,6 +51,22 @@ const RemixMediaRenderer: React.FC<Props> = ({ gif, onError }) => {
   const placement = layout.placement || 'bottom-right';
   const overlayShape = layout.overlayShape || 'rounded';
   const scale = layout.scale ?? 0.35;
+
+  if (import.meta.env.DEV && gif.is_remix) {
+    // eslint-disable-next-line no-console
+    console.log('[RemixMediaRenderer]', {
+      id: gif.id,
+      is_remix: gif.is_remix,
+      remix_mode: mode,
+      base_image_https: gif.image?.startsWith('https://') ?? false,
+      base_image_blob: gif.image?.startsWith('blob:') ?? false,
+      base_mp4_present: !!gif.mp4_url,
+      remix_media_url_present: !!remixUrl,
+      remix_media_url_https: remixUrl?.startsWith('https://') ?? false,
+      remix_media_url_blob: remixUrl?.startsWith('blob:') ?? false,
+      remix_media_type: gif.remix_media_type,
+    });
+  }
 
   const basePlayerProps = {
     mp4Url: gif.mp4_url,

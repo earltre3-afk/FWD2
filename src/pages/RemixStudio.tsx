@@ -246,18 +246,32 @@ const RemixStudio: React.FC = () => {
     }, 220);
 
     const ext = file.name.split('.').pop() || 'bin';
-    const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const path = `${user.id}/remix-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
     try {
-      const { error: upErr } = await supabase.storage.from('fwd-uploads').upload(path, file, {
+      // Upload to the PUBLIC fwd-gifs bucket so the URL is fetchable from any client.
+      // fwd-uploads is a private bucket and getPublicUrl() returns a URL that 400s,
+      // which previously caused the right panel of Split / overlay of Reaction remixes
+      // to show a broken image icon and persist as a broken URL in remix_media_url.
+      const { error: upErr } = await supabase.storage.from('fwd-gifs').upload(path, file, {
         contentType: file.type,
         upsert: false,
       });
       clearInterval(interval);
       if (upErr) throw upErr;
 
-      const { data } = supabase.storage.from('fwd-uploads').getPublicUrl(path);
+      const { data } = supabase.storage.from('fwd-gifs').getPublicUrl(path);
       if (!data?.publicUrl) throw new Error('No public URL');
+
+      // Verify the public URL is actually fetchable before considering the upload "done".
+      // If the bucket is private or the policy blocks public read, this catches it now
+      // instead of saving a broken URL into remix_media_url.
+      try {
+        const probe = await fetch(data.publicUrl, { method: 'HEAD', cache: 'no-store' });
+        if (!probe.ok) throw new Error(`Public URL not readable (${probe.status})`);
+      } catch (probeErr: any) {
+        throw new Error(`Uploaded file is not publicly readable: ${probeErr?.message || probeErr}`);
+      }
 
       setUploadProgress(100);
       setUploadStatus('success');
@@ -265,7 +279,7 @@ const RemixStudio: React.FC = () => {
 
       if (import.meta.env.DEV) {
         console.log('[RemixStudio] Upload complete', {
-          localUrl: 'yes', remoteUrl: data.publicUrl, mimeType: file.type,
+          bucket: 'fwd-gifs', localUrl: 'yes', remoteUrlIsHttps: data.publicUrl.startsWith('https://'), mimeType: file.type,
         });
       }
     } catch (e: any) {
@@ -603,6 +617,20 @@ const RemixStudio: React.FC = () => {
       // ── Require at least one permanent media URL ──────────────────────────
       if (!mediaUrl || !mediaUrl.startsWith('http')) {
         toast({ title: 'No valid media', description: 'This remix needs a valid uploaded media file before saving.', variant: 'destructive' });
+        setSaving(false);
+        return;
+      }
+
+      // ── Mode-specific requirement: split/reaction/ai-blend NEED remix_media_url ──
+      // If the user picked Split/Reaction/AI-Blend without uploading a replacement,
+      // the resulting card would be the original GIF only and show as broken.
+      const modeNeedsReplacement = ['split', 'reaction', 'ai-blend'].includes(effectiveMode);
+      if (modeNeedsReplacement && (!replacement?.remoteUrl || !replacement.remoteUrl.startsWith('https://'))) {
+        toast({
+          title: 'Finish uploading media before saving your remix.',
+          description: `${effectiveMode} mode needs an uploaded image or video before posting.`,
+          variant: 'destructive',
+        });
         setSaving(false);
         return;
       }

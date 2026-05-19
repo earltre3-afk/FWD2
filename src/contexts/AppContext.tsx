@@ -600,16 +600,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return [];
       }
 
-      // Hydrate gifs and profiles separately
+      // Hydrate gifs and profiles separately.
+      // IMPORTANT: do NOT embed original_profile here. If the FK relationship
+      // PostgREST infers between fwd_gifs.remixed_from_user_id and fwd_profiles
+      // is missing, the whole gif fetch returns no rows → every post would show
+      // "GIF unavailable" on refresh. Fetch profiles separately and stitch.
       const gifIds = [...new Set(fallback.data.map((p: any) => p.gif_id).filter(Boolean))];
       const userIds = [...new Set(fallback.data.map((p: any) => p.user_id).filter(Boolean))];
 
-      const [gifsRes, profilesRes] = await Promise.all([
-        gifIds.length > 0 ? supabase.from('fwd_gifs').select('*, original_profile:fwd_profiles!remixed_from_user_id(display_name, username)').in('id', gifIds) : { data: [] },
-        userIds.length > 0 ? supabase.from('profiles').select('id, display_name, username, avatar_url').in('id', userIds) : { data: [] },
-      ]);
+      const gifsRes = gifIds.length > 0
+        ? await supabase.from('fwd_gifs').select('*').in('id', gifIds)
+        : { data: [] as any[], error: null };
+      const profilesRes = userIds.length > 0
+        ? await supabase.from('profiles').select('id, display_name, username, avatar_url').in('id', userIds)
+        : { data: [] as any[], error: null };
 
-      const gifMap = new Map((gifsRes.data || []).map((g: any) => [g.id, g]));
+      if (process.env.NODE_ENV === 'development' && (gifsRes as any).error) {
+        console.error('[fetchFeedPage] gif hydration failed:', (gifsRes as any).error);
+      }
+
+      // Separately stitch in original_profile for remixes that reference another user.
+      const remixedFromIds = [...new Set((gifsRes.data || []).map((g: any) => g.remixed_from_user_id).filter(Boolean))];
+      const remixOriginalProfilesRes = remixedFromIds.length > 0
+        ? await supabase.from('fwd_profiles').select('user_id, display_name, username').in('user_id', remixedFromIds)
+        : { data: [] as any[] };
+      const remixOriginalProfileMap = new Map((remixOriginalProfilesRes.data || []).map((p: any) => [p.user_id, p]));
+
+      const gifMap = new Map(
+        (gifsRes.data || []).map((g: any) => [g.id, {
+          ...g,
+          original_profile: g.remixed_from_user_id ? remixOriginalProfileMap.get(g.remixed_from_user_id) || null : null,
+        }])
+      );
       const profileMap = new Map((profilesRes.data || []).map((p: any) => [p.id, p]));
 
       data = fallback.data.map((p: any) => ({

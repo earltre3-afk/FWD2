@@ -355,7 +355,7 @@ const PostCard: React.FC<{ post: FwdPost }> = ({ post }) => {
       </div>
 
       {/* GIF — the star */}
-      {(post.gif?.image || post.gif?.mp4_url || post.gif?.webm_url || post.gif?.source_video_url || post.gif?.still_url || (post.gif as any)?.preview_url) ? (() => {
+      {(post.gif?.image || post.gif?.mp4_url || post.gif?.webm_url || post.gif?.source_video_url || post.gif?.still_url || (post.gif as any)?.preview_url || post.gif?.remix_media_url) ? (() => {
         const gif = post.gif!;
         const hasRemixOverlay = gif.is_remix && gif.remix_media_url &&
           ['reaction', 'split', 'ai-blend'].includes(gif.remix_mode || '');
